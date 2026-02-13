@@ -1,6 +1,9 @@
+import OzAPI from "oz-agent-sdk"
+import type { ArtifactItem, RunItem } from "oz-agent-sdk/resources/agent/runs"
 import { prisma } from "@/lib/prisma"
 
-const OZ_API_BASE = process.env.WARP_API_URL || "https://app.warp.dev"
+// Re-export SDK types so consumers don't need to import from the SDK directly.
+export type { ArtifactItem }
 
 async function getApiKey(userId?: string | null): Promise<string> {
   let apiKey: string | undefined
@@ -15,6 +18,14 @@ async function getApiKey(userId?: string | null): Promise<string> {
   return apiKey
 }
 
+function getOzClient(apiKey: string): OzAPI {
+  return new OzAPI({
+    apiKey,
+    ...(process.env.WARP_API_URL ? { baseURL: process.env.WARP_API_URL } : {}),
+    maxRetries: 3,
+  })
+}
+
 interface RunAgentOptions {
   prompt: string
   environmentId?: string
@@ -24,40 +35,6 @@ interface RunAgentOptions {
   userId?: string | null
 }
 
-// Based on actual Warp API response structure
-interface TaskStatusResponse {
-  task_id: string
-  state: string  // "PENDING", "RUNNING", "SUCCEEDED", "FAILED", etc.
-  title?: string
-  prompt?: string
-  created_at?: string
-  started_at?: string
-  updated_at?: string
-  session_link?: string
-  session_id?: string
-  conversation_id?: string
-  status_message?: {
-    message?: string
-  }
-  is_sandbox_running?: boolean
-  artifacts?: WarpArtifact[]
-}
-
-export interface WarpArtifact {
-  created_at: string
-  artifact_type: "PLAN" | "PULL_REQUEST" | string
-  data: {
-    // PLAN fields
-    document_uid?: string
-    notebook_uid?: string
-    title?: string
-    // PULL_REQUEST fields
-    url?: string
-    branch?: string
-    [key: string]: unknown
-  }
-}
-
 export interface TaskStatus {
   taskId: string
   state: "pending" | "running" | "completed" | "failed"
@@ -65,107 +42,67 @@ export interface TaskStatus {
   sessionLink?: string
   statusMessage?: string
   conversationId?: string
-  artifacts?: WarpArtifact[]
+  artifacts?: ArtifactItem[]
+}
+
+function mapRunState(state: RunItem["state"]): TaskStatus["state"] {
+  switch (state) {
+    case "INPROGRESS":
+    case "CLAIMED":
+      return "running"
+    case "PENDING":
+    case "QUEUED":
+      return "pending"
+    case "SUCCEEDED":
+      return "completed"
+    case "FAILED":
+    case "CANCELLED":
+      return "failed"
+    default:
+      return "pending"
+  }
+}
+
+function mapRunItemToTaskStatus(data: RunItem): TaskStatus {
+  return {
+    taskId: data.run_id,
+    state: mapRunState(data.state),
+    title: data.title,
+    sessionLink: data.session_link,
+    statusMessage: data.status_message?.message,
+    conversationId: data.conversation_id,
+    artifacts: data.artifacts,
+  }
 }
 
 export async function runAgent(options: RunAgentOptions): Promise<string> {
   const apiKey = await getApiKey(options.userId)
   console.log("[oz-client] API key present:", !!apiKey, "length:", apiKey?.length)
 
-  // Build request body per API docs: environment_id goes inside config object
-  const requestBody: Record<string, unknown> = {
-    prompt: options.prompt,
-  }
-  
-  // Only include config if there are config options
-  const config: Record<string, unknown> = {}
+  const client = getOzClient(apiKey)
+
+  const config: OzAPI.AmbientAgentConfig = {}
   if (options.environmentId) config.environment_id = options.environmentId
-  if (options.agentProfileId) config.agent_profile_id = options.agentProfileId
-  if (Object.keys(config).length > 0) requestBody.config = config
-  
-  console.log("[oz-client] Request body:", { ...requestBody, prompt: (requestBody.prompt as string)?.substring(0, 100) + "..." })
-  
-  const res = await fetch(`${OZ_API_BASE}/api/v1/agent/run`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(requestBody),
+
+  console.log("[oz-client] Request:", { prompt: options.prompt?.substring(0, 100) + "...", config })
+
+  const response = await client.agent.run({
+    prompt: options.prompt,
+    ...(Object.keys(config).length > 0 ? { config } : {}),
   })
 
-  if (!res.ok) {
-    const error = await res.text()
-    console.error("[oz-client] runAgent failed:", res.status, error)
-    throw new Error(`Failed to run agent (${res.status}): ${error}`)
-  }
-
-  const data = await res.json()
-  console.log("[oz-client] runAgent response:", data)
-  return data.run_id || data.task_id
+  console.log("[oz-client] runAgent response:", response)
+  return response.run_id
 }
 
 export async function getTaskStatus(taskId: string, userId?: string | null): Promise<TaskStatus> {
   const apiKey = await getApiKey(userId)
+  const client = getOzClient(apiKey)
 
-  const maxRetries = 3
-  let lastError: Error | null = null
+  const data = await client.agent.runs.retrieve(taskId)
+  console.log("[oz-client] getTaskStatus response:", JSON.stringify(data, null, 2))
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const res = await fetch(`${OZ_API_BASE}/api/v1/agent/runs/${taskId}`, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-      },
-    })
-
-    if (res.ok) {
-      const data: TaskStatusResponse = await res.json()
-      console.log("[oz-client] getTaskStatus response:", JSON.stringify(data, null, 2))
-      
-      // Map API state (uppercase) to our normalized state (lowercase)
-      const stateUpper = data.state?.toUpperCase()
-      let state: TaskStatus["state"] = "pending"
-      if (stateUpper === "RUNNING" || stateUpper === "INPROGRESS") {
-        state = "running"
-      } else if (stateUpper === "PENDING" || stateUpper === "QUEUED") {
-        state = "pending"
-      } else if (stateUpper === "SUCCEEDED" || stateUpper === "COMPLETED") {
-        state = "completed"
-      } else if (stateUpper === "FAILED" || stateUpper === "ERROR") {
-        state = "failed"
-      }
-
-      return {
-        taskId: data.task_id,
-        state,
-        title: data.title,
-        sessionLink: data.session_link,
-        statusMessage: data.status_message?.message,
-        conversationId: data.conversation_id,
-        artifacts: data.artifacts,
-      }
-    }
-
-    // Handle rate limiting with exponential backoff
-    if (res.status === 429 && attempt < maxRetries) {
-      const delayMs = 2000 * Math.pow(2, attempt) // 2s, 4s, 8s
-      console.log(`[oz-client] Rate limited (429), retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`)
-      await new Promise((resolve) => setTimeout(resolve, delayMs))
-      continue
-    }
-
-    const error = await res.text()
-    lastError = new Error(`Failed to get task status: ${error}`)
-    
-    // For non-429 errors, don't retry
-    if (res.status !== 429) {
-      throw lastError
-    }
-  }
-
-  // All retries exhausted
-  throw lastError ?? new Error("Failed to get task status after retries")
-
+  return mapRunItemToTaskStatus(data)
 }
 
 export async function pollForCompletion(
@@ -178,7 +115,6 @@ export async function pollForCompletion(
     const status = await getTaskStatus(taskId, userId)
     console.log(`[oz-client] Poll attempt ${attempt + 1}: state=${status.state}`)
 
-    // Check if task is in a terminal state
     if (status.state === "completed" || status.state === "failed") {
       return status
     }

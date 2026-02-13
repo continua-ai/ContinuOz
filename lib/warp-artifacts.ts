@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { eventBroadcaster } from "@/lib/event-broadcaster"
-import type { WarpArtifact } from "@/lib/oz-client"
+import type { ArtifactItem } from "@/lib/oz-client"
 
 const ARTIFACT_TYPE_MAP: Record<string, string> = {
   PLAN: "plan",
@@ -11,24 +11,27 @@ function normalizeArtifactType(type: string) {
   return ARTIFACT_TYPE_MAP[type] ?? type.toLowerCase()
 }
 
-function getArtifactTitle(a: WarpArtifact) {
-  const data = (a as { data?: WarpArtifact["data"] | null }).data ?? {}
-  return data.title ?? data.branch ?? a.artifact_type
+function getArtifactTitle(a: ArtifactItem) {
+  switch (a.artifact_type) {
+    case "PLAN":
+      return a.data.title ?? a.artifact_type
+    case "PULL_REQUEST":
+      return a.data.branch ?? a.artifact_type
+  }
 }
 
-function getArtifactUrl(a: WarpArtifact) {
-  const data = (a as { data?: WarpArtifact["data"] | null }).data ?? {}
-  return data.url ?? null
+function getArtifactUrl(a: ArtifactItem) {
+  if (a.artifact_type === "PULL_REQUEST") return a.data.url
+  return null
 }
 
-function getArtifactContent(a: WarpArtifact) {
-  const data = (a as { data?: WarpArtifact["data"] | null }).data ?? {}
-  if (data.document_uid) return `document:${data.document_uid}`
+function getArtifactContent(a: ArtifactItem) {
+  if (a.artifact_type === "PLAN") return `document:${a.data.document_uid}`
   return ""
 }
 
 export async function saveWarpArtifacts(
-  artifacts: WarpArtifact[],
+  artifacts: ArtifactItem[],
   ctx: { roomId: string; agentId: string; userId: string | null },
 ) {
   for (const a of artifacts) {
