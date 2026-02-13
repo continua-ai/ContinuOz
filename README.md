@@ -64,7 +64,7 @@ DATABASE_URL="file:./prisma/dev.db"
 # Auth (generate with: openssl rand -base64 32)
 AUTH_SECRET="<your-random-secret>"
 
-# Warp API Key — get yours at https://app.warp.dev/settings/api-keys
+# Warp API Key — create one in the Warp app under Settings > Platform
 WARP_API_KEY="<your-warp-api-key>"
 
 # Warp Environment ID — get from the Warp dashboard or CLI
