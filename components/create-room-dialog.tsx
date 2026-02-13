@@ -76,6 +76,7 @@ export function CreateRoomDialog({
             </Field>
             <Field>
               <FieldLabel htmlFor="room-desc">Description</FieldLabel>
+              <p className="text-xs text-muted-foreground">Describe the project you want to build with your agents.</p>
               <Textarea
                 id="room-desc"
                 value={description}
