@@ -35,9 +35,8 @@ export async function saveWarpArtifacts(
   ctx: { roomId: string; agentId: string; userId: string | null },
 ) {
   for (const a of artifacts) {
-    const rawType = typeof a.artifact_type === "string" && a.artifact_type.length > 0 ? a.artifact_type : "unknown"
-    const type = normalizeArtifactType(rawType)
-    const title = getArtifactTitle(a) ?? rawType
+    const type = normalizeArtifactType(a.artifact_type)
+    const title = getArtifactTitle(a)
     const url = getArtifactUrl(a)
     const content = getArtifactContent(a)
 

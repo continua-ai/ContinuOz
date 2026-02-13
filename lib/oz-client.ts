@@ -29,9 +29,6 @@ function getOzClient(apiKey: string): OzAPI {
 interface RunAgentOptions {
   prompt: string
   environmentId?: string
-  agentProfileId?: string
-  dockerImage?: string
-  mcpServerIds?: string[]
   userId?: string | null
 }
 
@@ -99,6 +96,10 @@ export async function getTaskStatus(taskId: string, userId?: string | null): Pro
   const apiKey = await getApiKey(userId)
   const client = getOzClient(apiKey)
 
+  return retrieveTaskStatus(client, taskId)
+}
+
+async function retrieveTaskStatus(client: OzAPI, taskId: string): Promise<TaskStatus> {
   const data = await client.agent.runs.retrieve(taskId)
   console.log("[oz-client] getTaskStatus response:", JSON.stringify(data, null, 2))
 
@@ -111,8 +112,12 @@ export async function pollForCompletion(
 ): Promise<TaskStatus> {
   const { maxAttempts = 60, intervalMs = 10000, userId } = options
 
+  // Resolve API key and client once for the entire polling loop.
+  const apiKey = await getApiKey(userId)
+  const client = getOzClient(apiKey)
+
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const status = await getTaskStatus(taskId, userId)
+    const status = await retrieveTaskStatus(client, taskId)
     console.log(`[oz-client] Poll attempt ${attempt + 1}: state=${status.state}`)
 
     if (status.state === "completed" || status.state === "failed") {
