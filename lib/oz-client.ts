@@ -19,9 +19,15 @@ async function getApiKey(userId?: string | null): Promise<string> {
 }
 
 function getOzClient(apiKey: string): OzAPI {
+  // The SDK default base URL is https://app.warp.dev/api/v1.
+  // WARP_API_URL is the root (e.g. https://app.warp.dev), so append /api/v1.
+  const baseURL = process.env.WARP_API_URL
+    ? `${process.env.WARP_API_URL.replace(/\/+$/, "")}/api/v1`
+    : undefined
+
   return new OzAPI({
     apiKey,
-    ...(process.env.WARP_API_URL ? { baseURL: process.env.WARP_API_URL } : {}),
+    ...(baseURL ? { baseURL } : {}),
     maxRetries: 3,
   })
 }
