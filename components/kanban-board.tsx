@@ -204,7 +204,7 @@ function KanbanColumn({
           {tasks.length}
         </Badge>
       </div>
-      <ScrollArea className="flex-1 px-1.5">
+      <ScrollArea className="flex-1 overflow-hidden px-1.5">
         <div className="space-y-1.5 pb-1.5">
           {tasks.map((task) => (
             <TaskCard key={task.id} task={task} onUpdate={onUpdate} onDelete={onDelete} />

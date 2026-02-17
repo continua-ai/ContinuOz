@@ -50,6 +50,13 @@ export function AppSidebar() {
     fetchNotifications()
   }, [fetchRooms, fetchAgents, fetchNotifications])
 
+  // Poll for notification updates as a fallback when the user isn't
+  // in the room that generated the notification.
+  React.useEffect(() => {
+    const interval = setInterval(fetchNotifications, 15_000)
+    return () => clearInterval(interval)
+  }, [fetchNotifications])
+
   return (
     <>
       <Sidebar>

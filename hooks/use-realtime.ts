@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useCallback } from "react"
-import { useMessageStore, useRoomStore, useTaskStore, useArtifactStore } from "@/lib/stores"
+import { useMessageStore, useRoomStore, useTaskStore, useArtifactStore, useNotificationStore } from "@/lib/stores"
 import type { Message, Room, Task } from "@/lib/types"
 
 interface TaskEventData {
@@ -22,6 +22,7 @@ export function useRealtime(roomId: string | null) {
   const { refreshRoom } = useRoomStore()
   const { fetchTasks } = useTaskStore()
   const { fetchArtifacts } = useArtifactStore()
+  const { fetchNotifications } = useNotificationStore()
 
   const connect = useCallback(() => {
     if (!roomId) return
@@ -103,6 +104,17 @@ export function useRealtime(roomId: string | null) {
         console.error("[useRealtime] Failed to parse artifact event:", error)
       }
     })
+
+    eventSource.addEventListener("notification", (event) => {
+      try {
+        const evt = event as MessageEvent
+        if (evt.lastEventId) lastEventIdRef.current = evt.lastEventId
+        lastHeardAtRef.current = Date.now()
+        fetchNotifications()
+      } catch (error) {
+        console.error("[useRealtime] Failed to parse notification event:", error)
+      }
+    })
     eventSource.addEventListener("heartbeat", () => {
       lastHeardAtRef.current = Date.now()
     })
@@ -146,7 +158,7 @@ export function useRealtime(roomId: string | null) {
       fetchTasks(roomId)
       fetchArtifacts(roomId)
     }
-  }, [roomId, appendMessage, refreshRoom, fetchTasks, fetchMessages, fetchArtifacts])
+  }, [roomId, appendMessage, refreshRoom, fetchTasks, fetchMessages, fetchArtifacts, fetchNotifications])
 
   useEffect(() => {
     connectRef.current = connect

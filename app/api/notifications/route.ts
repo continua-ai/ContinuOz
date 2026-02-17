@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { getAuthenticatedUserId, AuthError, unauthorizedResponse } from "@/lib/auth-helper"
+import { eventBroadcaster } from "@/lib/event-broadcaster"
 
 export async function GET() {
   try {
@@ -60,6 +61,13 @@ export async function POST(request: Request) {
         room: { select: { name: true } },
         agent: { select: { id: true, name: true, color: true, icon: true, status: true, activeRoomId: true } },
       },
+    })
+
+    // Broadcast so realtime listeners can update the unread count
+    eventBroadcaster.broadcast({
+      type: "notification",
+      roomId,
+      data: { action: "created", notification },
     })
 
     return NextResponse.json(notification, { status: 201 })

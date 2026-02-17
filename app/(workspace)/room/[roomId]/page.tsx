@@ -288,7 +288,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
               <div className="flex h-12 items-center border-b px-4">
                 <h2 className="text-sm font-semibold">Artifacts</h2>
               </div>
-              <div className="flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-hidden">
                 <ArtifactsPanel roomId={roomId} />
               </div>
             </div>
