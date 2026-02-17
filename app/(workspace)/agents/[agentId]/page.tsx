@@ -100,7 +100,7 @@ export default function AgentDetailPage({
           <TrashIcon className="h-4 w-4" />
         </Button>
       </header>
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 overflow-hidden">
         <div className="max-w-2xl mx-auto p-6">
           <FieldGroup>
             <div className="grid grid-cols-2 gap-4">
