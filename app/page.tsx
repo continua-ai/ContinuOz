@@ -140,7 +140,7 @@ export default async function Page() {
                     alt={feature.imageAlt}
                     width={1512}
                     height={853}
-                    className={feature.imageClass ?? "h-auto w-full rounded-md border"}
+                    className="h-auto w-full rounded-md border"
                   />
                 </div>
               )
