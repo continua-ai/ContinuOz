@@ -35,6 +35,7 @@ export function CreateAgentDialog({
   const [color, setColor] = React.useState(AGENT_COLORS[0])
   const [icon, setIcon] = React.useState("robot")
   const [loading, setLoading] = React.useState(false)
+  const [copied, setCopied] = React.useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -105,13 +106,29 @@ export function CreateAgentDialog({
             </Field>
             <Field>
               <FieldLabel htmlFor="agent-env">Environment ID</FieldLabel>
-              <div className="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground space-y-1">
+              <div className="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground space-y-2">
                 <p>To create an environment:</p>
                 <ol className="list-decimal ml-4 space-y-0.5">
                   <li>Clone the <a href="https://github.com/warpdotdev/oz_workspace_agent" target="_blank" rel="noopener noreferrer" className="underline text-foreground">oz_workspace_agent</a> repository.</li>
                   <li>Visit <a href="https://oz.warp.dev/environments" target="_blank" rel="noopener noreferrer" className="underline text-foreground">oz.warp.dev/environments</a>, auth with your GitHub account, and add the cloned repo to a new environment.</li>
                   <li>Enter the environment ID below.</li>
                 </ol>
+                <p>Copy and paste into Warp to get Oz to do it:</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-6 text-xs"
+                  onClick={() => {
+                    navigator.clipboard.writeText(
+                      "clone this repository to my github account https://github.com/warpdotdev/oz_workspace_agent and create an oz environment using it"
+                    )
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 2000)
+                  }}
+                >
+                  {copied ? "Copied!" : "Copy"}
+                </Button>
               </div>
               <Input
                 id="agent-env"

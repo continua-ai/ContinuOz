@@ -30,6 +30,7 @@ export default function AgentDetailPage({
   const [saving, setSaving] = React.useState(false)
   const [deleting, setDeleting] = React.useState(false)
   const [dirty, setDirty] = React.useState(false)
+  const [copied, setCopied] = React.useState(false)
 
   React.useEffect(() => {
     fetch(`/api/agents/${agentId}`)
@@ -135,13 +136,29 @@ export default function AgentDetailPage({
             </Field>
             <Field>
               <FieldLabel htmlFor="detail-env">Environment ID</FieldLabel>
-              <div className="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground space-y-1">
+              <div className="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground space-y-2">
                 <p>To create an environment:</p>
                 <ol className="list-decimal ml-4 space-y-0.5">
                   <li>Clone the <a href="https://github.com/warpdotdev/oz_workspace_agent" target="_blank" rel="noopener noreferrer" className="underline text-foreground">oz_workspace_agent</a> repository.</li>
                   <li>Visit <a href="https://oz.warp.dev/environments" target="_blank" rel="noopener noreferrer" className="underline text-foreground">oz.warp.dev/environments</a>, auth with your GitHub account, and add the cloned repo to a new environment.</li>
                   <li>Enter the environment ID below.</li>
                 </ol>
+                <p>OR Copy and paste into Warp to get Oz to do it:</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-6 text-xs"
+                  onClick={() => {
+                    navigator.clipboard.writeText(
+                      "clone this repository to my github account https://github.com/warpdotdev/oz_workspace_agent and create an oz environment using it, then return the environment ID"
+                    )
+                    setCopied(true)
+                    setTimeout(() => setCopied(false), 2000)
+                  }}
+                >
+                  {copied ? "Copied!" : "Copy"}
+                </Button>
               </div>
               <Input
                 id="detail-env"
