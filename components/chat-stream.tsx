@@ -131,6 +131,11 @@ const MessageBubble = React.memo(function MessageBubble({ message, agents }: { m
     [message.content, agents]
   )
 
+  const hasMention = React.useMemo(
+    () => isHuman && findMentionMatches(message.content, agents.map((a) => a.name)).length > 0,
+    [isHuman, message.content, agents]
+  )
+
   return (
     <div className="flex items-start gap-3 px-4 py-2 hover:bg-muted/50 transition-colors">
       <Avatar className="h-8 w-8 shrink-0">
@@ -157,6 +162,11 @@ const MessageBubble = React.memo(function MessageBubble({ message, agents }: { m
         <div className="text-sm mt-0.5">
           {renderedContent}
         </div>
+        {isHuman && !hasMention && (
+          <p className="mt-1 text-xs text-muted-foreground italic">
+            Tip: mention an agent with @ to trigger a response.
+          </p>
+        )}
         {message.sessionUrl && (
           <a
             href={message.sessionUrl}
