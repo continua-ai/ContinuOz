@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth"
 import Link from "next/link"
 import Image from "next/image"
 import { OzLogo } from "@/components/oz-logo"
+import { AgentNetworkViz } from "@/components/agent-network-viz"
 import { Button } from "@/components/ui/button"
 import {
   HashIcon,
@@ -13,7 +14,6 @@ import {
 } from "@phosphor-icons/react/dist/ssr"
 
 const screenshots = {
-  hero: "/hero.png",
   rooms: "/rooms.png",
   tasks: "/kanban.png",
   createAgent: "/agents.png",
@@ -81,7 +81,7 @@ export default async function Page() {
       </header>
 
       <main>
-        <section className="overflow-hidden pt-14 md:pt-24">
+        <section className="overflow-hidden pt-6 md:pt-10">
           <div className="mx-auto grid w-full max-w-6xl gap-8 px-4 md:grid-cols-[1fr_1.4fr] md:items-center">
             <div>
               <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
@@ -91,7 +91,7 @@ export default async function Page() {
                 Build and ship with teams of autonomous agents.
               </h1>
               <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground md:text-base">
-                Coordinate specialized agents in real-time rooms, track delivery in Kanban, and
+                Create arbitrary teams of agents that you define. Coordinate them in real-time rooms, track delivery in Kanban, and
                 generate plans and PRs without losing context.
               </p>
               <div className="mt-6 flex flex-wrap items-center gap-2">
@@ -107,16 +107,19 @@ export default async function Page() {
               </div>
             </div>
             <div className="md:-mr-[calc(50vw-50%)] md:pl-4">
-              <Image
-                src={screenshots.hero}
-                alt="Oz workspace showing active chat and generated plan/PR artifacts."
-                width={1512}
-                height={853}
-                className="h-auto w-full rounded-l-xl border border-r-0"
-                priority
-              />
+              <AgentNetworkViz className="aspect-[16/10] w-full" />
             </div>
           </div>
+        </section>
+
+        <section className="mx-auto w-full max-w-6xl px-4" style={{ paddingTop: '4rem' }}>
+          <Image
+            src="/hero.png"
+            alt="Oz workspace showing active chat and generated plan/PR artifacts."
+            width={1512}
+            height={853}
+            className="h-auto w-full rounded-xl border"
+          />
         </section>
 
         <section className="mx-auto w-full max-w-6xl px-4 text-center" style={{ paddingTop: '5rem' }}>
