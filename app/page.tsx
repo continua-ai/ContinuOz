@@ -113,6 +113,9 @@ export default async function Page() {
         </section>
 
         <section className="mx-auto w-full max-w-6xl px-4" style={{ paddingTop: '4rem' }}>
+          <h2 className="text-center text-lg font-semibold md:text-2xl" style={{ paddingBottom: '2rem' }}>
+            Wrapped in a familiar, collaborative interface for working with agent teams.
+          </h2>
           <Image
             src="/hero.png"
             alt="Oz workspace showing active chat and generated plan/PR artifacts."
