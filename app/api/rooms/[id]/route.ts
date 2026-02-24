@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getAuthenticatedUserId, AuthError, unauthorizedResponse } from "@/lib/auth-helper"
+import {
+  getAuthenticatedWorkspaceContext,
+  AuthError,
+  ForbiddenError,
+  unauthorizedResponse,
+  forbiddenResponse,
+} from "@/lib/auth-helper"
 import { eventBroadcaster } from "@/lib/event-broadcaster"
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { id } = await params
     const room = await prisma.room.findUnique({
-      where: { id, userId },
+      where: { id, workspaceId },
       include: {
         agents: {
           include: { agent: { select: { id: true, name: true, color: true, icon: true, status: true, activeRoomId: true } } },
@@ -19,21 +25,36 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ ...room, agents: room.agents.map((ra) => ra.agent) })
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     throw error
   }
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { id } = await params
 
     // Verify ownership
-    const existing = await prisma.room.findUnique({ where: { id, userId } })
+    const existing = await prisma.room.findUnique({ where: { id, workspaceId } })
     if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
     const body = await req.json()
     const { agentIds, description } = body
+
+    if (agentIds !== undefined) {
+      if (!Array.isArray(agentIds)) {
+        return NextResponse.json({ error: "agentIds must be an array" }, { status: 400 })
+      }
+      if (agentIds.length > 0) {
+        const allowedAgentCount = await prisma.agent.count({
+          where: { id: { in: agentIds }, workspaceId },
+        })
+        if (allowedAgentCount !== agentIds.length) {
+          return NextResponse.json({ error: "One or more agents are not in this workspace" }, { status: 400 })
+        }
+      }
+    }
 
     if (agentIds !== undefined) {
       await prisma.roomAgent.deleteMany({ where: { roomId: id } })
@@ -71,20 +92,22 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json(roomData)
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     throw error
   }
 }
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { id } = await params
-    const existing = await prisma.room.findUnique({ where: { id, userId } })
+    const existing = await prisma.room.findUnique({ where: { id, workspaceId } })
     if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
     await prisma.room.delete({ where: { id } })
     return NextResponse.json({ ok: true })
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     throw error
   }
 }

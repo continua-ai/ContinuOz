@@ -9,10 +9,16 @@ import { Button } from "@/components/ui/button"
 
 export default function LoginPage() {
   const router = useRouter()
+  const [inviteToken, setInviteToken] = React.useState<string | null>(null)
   const [email, setEmail] = React.useState("")
   const [password, setPassword] = React.useState("")
   const [error, setError] = React.useState("")
   const [loading, setLoading] = React.useState(false)
+
+  React.useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get("invite")
+    setInviteToken(token)
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -30,6 +36,18 @@ export default function LoginPage() {
     if (result?.error) {
       setError("Invalid email or password")
     } else {
+      if (inviteToken) {
+        const acceptRes = await fetch("/api/workspace/invites/accept", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inviteId: inviteToken }),
+        })
+        if (!acceptRes.ok) {
+          const data = await acceptRes.json().catch(() => ({ error: "Failed to accept invite" }))
+          setError(data.error ?? "Failed to accept invite")
+          return
+        }
+      }
       router.push("/inbox")
       router.refresh()
     }
@@ -41,7 +59,7 @@ export default function LoginPage() {
         <div className="space-y-1 text-center">
           <h1 className="text-2xl font-bold">Oz Workspace</h1>
           <p className="text-sm text-muted-foreground">
-            Sign in to your account
+            {inviteToken ? "Sign in to accept your invite" : "Sign in to your account"}
           </p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -80,7 +98,7 @@ export default function LoginPage() {
         </form>
         <p className="text-center text-sm text-muted-foreground">
           Don&apos;t have an account?{" "}
-          <Link href="/signup" className="text-foreground underline">
+          <Link href={inviteToken ? `/signup?invite=${encodeURIComponent(inviteToken)}` : "/signup"} className="text-foreground underline">
             Sign up
           </Link>
         </p>

@@ -6,11 +6,25 @@ import { warpRateLimiter } from "@/lib/rate-limiter"
 // Re-export SDK types so consumers don't need to import from the SDK directly.
 export type { ArtifactItem }
 
-async function getApiKey(userId?: string | null): Promise<string> {
+async function getApiKey(options: { userId?: string | null; workspaceId?: string } = {}): Promise<string> {
   let apiKey: string | undefined
-  if (userId) {
-    const setting = await prisma.setting.findUnique({ where: { userId_key: { userId, key: "warp_api_key" } } })
+  if (options.workspaceId) {
+    const setting = await prisma.setting.findUnique({
+      where: { workspaceId_key: { workspaceId: options.workspaceId, key: "warp_api_key" } },
+    })
     apiKey = setting?.value
+  } else if (options.userId) {
+    const membership = await prisma.workspaceMember.findFirst({
+      where: { userId: options.userId },
+      select: { workspaceId: true },
+      orderBy: { createdAt: "desc" },
+    })
+    if (membership?.workspaceId) {
+      const setting = await prisma.setting.findUnique({
+        where: { workspaceId_key: { workspaceId: membership.workspaceId, key: "warp_api_key" } },
+      })
+      apiKey = setting?.value
+    }
   }
   apiKey = apiKey || process.env.WARP_API_KEY
   if (!apiKey) {
@@ -37,6 +51,7 @@ interface RunAgentOptions {
   prompt: string
   environmentId?: string
   userId?: string | null
+  workspaceId?: string
 }
 
 export interface TaskStatus {
@@ -80,7 +95,7 @@ function mapRunItemToTaskStatus(data: RunItem): TaskStatus {
 }
 
 export async function runAgent(options: RunAgentOptions): Promise<string> {
-  const apiKey = await getApiKey(options.userId)
+  const apiKey = await getApiKey({ userId: options.userId, workspaceId: options.workspaceId })
   console.log("[oz-client] API key present:", !!apiKey, "length:", apiKey?.length)
 
   const client = getOzClient(apiKey)
@@ -102,8 +117,12 @@ export async function runAgent(options: RunAgentOptions): Promise<string> {
   return response.run_id || response.task_id
 }
 
-export async function getTaskStatus(taskId: string, userId?: string | null): Promise<TaskStatus> {
-  const apiKey = await getApiKey(userId)
+export async function getTaskStatus(
+  taskId: string,
+  userId?: string | null,
+  workspaceId?: string
+): Promise<TaskStatus> {
+  const apiKey = await getApiKey({ userId, workspaceId })
   const client = getOzClient(apiKey)
 
   return retrieveTaskStatus(client, taskId)
@@ -118,12 +137,12 @@ async function retrieveTaskStatus(client: OzAPI, taskId: string): Promise<TaskSt
 
 export async function pollForCompletion(
   taskId: string,
-  options: { maxAttempts?: number; intervalMs?: number; userId?: string | null } = {}
+  options: { maxAttempts?: number; intervalMs?: number; userId?: string | null; workspaceId?: string } = {}
 ): Promise<TaskStatus> {
-  const { maxAttempts = 60, intervalMs = 10000, userId } = options
+  const { maxAttempts = 60, intervalMs = 10000, userId, workspaceId } = options
 
   // Resolve API key and client once for the entire polling loop.
-  const apiKey = await getApiKey(userId)
+  const apiKey = await getApiKey({ userId, workspaceId })
   const client = getOzClient(apiKey)
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {

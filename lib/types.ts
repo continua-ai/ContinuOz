@@ -4,6 +4,7 @@ export type AuthorType = "human" | "agent"
 export type ArtifactType = "plan" | "pr" | "document" | "sheet"
 export type TaskStatus = "backlog" | "in_progress" | "done"
 export type TaskPriority = "low" | "medium" | "high"
+export type WorkspaceRole = "OWNER" | "MEMBER"
 
 export interface Room {
   id: string
@@ -87,4 +88,36 @@ export interface Notification {
   timestamp: string
   room?: { name: string }
   agent?: AgentSummary
+}
+
+export interface Workspace {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+  role: WorkspaceRole
+  currentUserId: string
+}
+
+export interface WorkspaceMember {
+  userId: string
+  role: WorkspaceRole
+  invitedByUserId?: string | null
+  createdAt: string
+  user: {
+    id: string
+    name: string
+    email: string
+  }
+}
+
+export interface WorkspaceInvite {
+  id: string
+  workspaceId: string
+  createdByUserId: string
+  role: WorkspaceRole
+  createdAt: string
+  acceptedAt?: string | null
+  expiresAt?: string | null
+  inviteUrl?: string
 }

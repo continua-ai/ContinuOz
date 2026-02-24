@@ -5,7 +5,7 @@ import { seedNewAccount } from "@/lib/seed-account"
 
 export async function POST(request: Request) {
   try {
-    const { name, email, password } = await request.json()
+    const { name, email, password, inviteToken } = await request.json()
 
     if (!name || !email || !password) {
       return NextResponse.json(
@@ -31,15 +31,82 @@ export async function POST(request: Request) {
 
     const passwordHash = await bcrypt.hash(password, 12)
 
-    const user = await prisma.user.create({
-      data: { name, email, passwordHash },
+    const invite =
+      typeof inviteToken === "string" && inviteToken.length > 0
+        ? await prisma.workspaceInvite.findUnique({
+            where: { id: inviteToken },
+            select: {
+              id: true,
+              workspaceId: true,
+              role: true,
+              createdByUserId: true,
+              acceptedAt: true,
+              expiresAt: true,
+            },
+          })
+        : null
+
+    if (inviteToken && !invite) {
+      return NextResponse.json({ error: "Invalid invite link" }, { status: 400 })
+    }
+    if (invite?.acceptedAt) {
+      return NextResponse.json({ error: "Invite link has already been used" }, { status: 400 })
+    }
+    if (invite?.expiresAt && invite.expiresAt < new Date()) {
+      return NextResponse.json({ error: "Invite link has expired" }, { status: 400 })
+    }
+
+    const user = await prisma.$transaction(async (tx) => {
+      const createdUser = await tx.user.create({
+        data: { name, email, passwordHash },
+      })
+
+      if (invite) {
+        await tx.workspaceMember.create({
+          data: {
+            workspaceId: invite.workspaceId,
+            userId: createdUser.id,
+            role: invite.role,
+            invitedByUserId: invite.createdByUserId,
+          },
+        })
+        await tx.workspaceInvite.update({
+          where: { id: invite.id },
+          data: { acceptedAt: new Date() },
+        })
+        return createdUser
+      }
+
+      const workspace = await tx.workspace.create({
+        data: {
+          name: `${name}'s Workspace`,
+        },
+      })
+      await tx.workspaceMember.create({
+        data: {
+          workspaceId: workspace.id,
+          userId: createdUser.id,
+          role: "OWNER",
+          invitedByUserId: null,
+        },
+      })
+      return createdUser
     })
 
-    // Seed starter agents and example room (non-blocking)
-    try {
-      await seedNewAccount(user.id)
-    } catch (seedError) {
-      console.error("Failed to seed new account:", seedError)
+    // Seed starter agents and example room only for newly created owner workspace.
+    if (!invite) {
+      try {
+        const ownerMembership = await prisma.workspaceMember.findFirst({
+          where: { userId: user.id, role: "OWNER" },
+          select: { workspaceId: true },
+          orderBy: { createdAt: "asc" },
+        })
+        if (ownerMembership) {
+          await seedNewAccount(user.id, ownerMembership.workspaceId)
+        }
+      } catch (seedError) {
+        console.error("Failed to seed new account:", seedError)
+      }
     }
 
     return NextResponse.json(

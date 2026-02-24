@@ -2,6 +2,55 @@ generator client {
   provider = "prisma-client"
   output   = "../lib/generated/prisma"
 }
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members   WorkspaceMember[]
+  invites   WorkspaceInvite[]
+  rooms     Room[]
+  agents    Agent[]
+  settings  Setting[]
+}
+
+model WorkspaceMember {
+  id             String        @id @default(cuid())
+  workspaceId    String
+  userId         String
+  role           WorkspaceRole @default(MEMBER)
+  invitedByUserId String?
+  createdAt      DateTime      @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation("WorkspaceMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy User?     @relation("WorkspaceMemberInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+model WorkspaceInvite {
+  id              String        @id @default(cuid())
+  workspaceId     String
+  createdByUserId String
+  role            WorkspaceRole @default(MEMBER)
+  createdAt       DateTime      @default(now())
+  acceptedAt      DateTime?
+  expiresAt       DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User     @relation("WorkspaceInviteCreator", fields: [createdByUserId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([createdByUserId])
+}
+
+enum WorkspaceRole {
+  OWNER
+  MEMBER
+}
 
 datasource db {
   provider = "sqlite"
@@ -14,14 +63,15 @@ model User {
   passwordHash String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-
   rooms         Room[]
   agents        Agent[]
   messages      Message[]
   artifacts     Artifact[]
   notifications Notification[]
   tasks         Task[]
-  settings      Setting[]
+  workspaceMemberships WorkspaceMember[] @relation("WorkspaceMemberUser")
+  invitedWorkspaceMembers WorkspaceMember[] @relation("WorkspaceMemberInviter")
+  createdInvites       WorkspaceInvite[] @relation("WorkspaceInviteCreator")
 }
 
 model Room {
@@ -29,11 +79,13 @@ model Room {
   name        String
   description String   @default("")
   paused      Boolean  @default(false)
+  workspaceId String?
   userId      String?
   publicShareId       String?  @unique
   publicShareEnabledAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  workspace     Workspace?      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   user          User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
   agents        RoomAgent[]
@@ -42,6 +94,8 @@ model Room {
   notifications Notification[]
   tasks         Task[]
   orchestrations AgentOrchestration[]
+
+  @@index([workspaceId])
 }
 
 model Agent {
@@ -58,9 +112,11 @@ model Agent {
   scripts       String   @default("[]")
   status        String   @default("idle")
   activeRoomId  String?  
+  workspaceId   String?
   userId        String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  workspace     Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   user          User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
   rooms         RoomAgent[]
@@ -71,6 +127,8 @@ model Agent {
   createdTasks  Task[]   @relation("TaskCreator")
   ledOrchestrations AgentOrchestration[]
   orchestrationChildren AgentOrchestrationChild[]
+
+  @@index([workspaceId])
 }
 
 model RoomAgent {
@@ -189,9 +247,9 @@ model Setting {
   id     String @id @default(cuid())
   key    String
   value  String
-  userId String?
+  workspaceId String?
+  legacyUserId String? @map("userId")
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, key])
+  @@unique([workspaceId, key])
 }

@@ -1,12 +1,18 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getAuthenticatedUserId, AuthError, unauthorizedResponse } from "@/lib/auth-helper"
+import {
+  getAuthenticatedWorkspaceContext,
+  AuthError,
+  ForbiddenError,
+  unauthorizedResponse,
+  forbiddenResponse,
+} from "@/lib/auth-helper"
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { id } = await params
-    const agent = await prisma.agent.findUnique({ where: { id, userId } })
+    const agent = await prisma.agent.findUnique({ where: { id, workspaceId } })
     if (!agent) return NextResponse.json({ error: "Not found" }, { status: 404 })
     return NextResponse.json({
       ...agent,
@@ -16,15 +22,16 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     })
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     throw error
   }
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { id } = await params
-    const existing = await prisma.agent.findUnique({ where: { id, userId } })
+    const existing = await prisma.agent.findUnique({ where: { id, workspaceId } })
     if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
     const body = await request.json()
@@ -50,20 +57,22 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     })
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     throw error
   }
 }
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { id } = await params
-    const existing = await prisma.agent.findUnique({ where: { id, userId } })
+    const existing = await prisma.agent.findUnique({ where: { id, workspaceId } })
     if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
     await prisma.agent.delete({ where: { id } })
     return NextResponse.json({ ok: true })
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     throw error
   }
 }

@@ -1,15 +1,21 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getAuthenticatedUserId, AuthError, unauthorizedResponse } from "@/lib/auth-helper"
+import {
+  getAuthenticatedWorkspaceContext,
+  AuthError,
+  ForbiddenError,
+  unauthorizedResponse,
+  forbiddenResponse,
+} from "@/lib/auth-helper"
 
 export async function GET(request: Request) {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { searchParams } = new URL(request.url)
     const roomId = searchParams.get("roomId")
     if (!roomId) return NextResponse.json({ error: "roomId required" }, { status: 400 })
 
-    const room = await prisma.room.findUnique({ where: { id: roomId, userId } })
+    const room = await prisma.room.findUnique({ where: { id: roomId, workspaceId } })
     if (!room) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
     const artifacts = await prisma.artifact.findMany({
@@ -23,6 +29,7 @@ export async function GET(request: Request) {
     return NextResponse.json(artifacts)
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     console.error("GET /api/artifacts error:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
@@ -33,10 +40,10 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { userId, workspaceId } = await getAuthenticatedWorkspaceContext()
     const body = await request.json()
 
-    const room = await prisma.room.findUnique({ where: { id: body.roomId, userId } })
+    const room = await prisma.room.findUnique({ where: { id: body.roomId, workspaceId } })
     if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 })
 
     const artifact = await prisma.artifact.create({
@@ -56,6 +63,7 @@ export async function POST(request: Request) {
     return NextResponse.json(artifact)
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     console.error("POST /api/artifacts error:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },

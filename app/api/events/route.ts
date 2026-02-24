@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getAuthenticatedUserId, AuthError } from "@/lib/auth-helper"
+import { getAuthenticatedWorkspaceContext, AuthError, ForbiddenError } from "@/lib/auth-helper"
 import { eventBroadcaster, type BroadcastEvent } from "@/lib/event-broadcaster"
 
 export const runtime = "nodejs"
@@ -21,7 +21,7 @@ function safeCloseController(controller: ReadableStreamDefaultController) {
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { searchParams } = new URL(request.url)
     const roomId = searchParams.get("roomId")
     const requestedCursor = searchParams.get("cursor")
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Verify room belongs to user
-    const room = await prisma.room.findUnique({ where: { id: roomId, userId } })
+    const room = await prisma.room.findUnique({ where: { id: roomId, workspaceId } })
     if (!room) {
       return new Response("Room not found", { status: 404 })
     }
@@ -145,6 +145,9 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     if (error instanceof AuthError) {
       return new Response("Unauthorized", { status: 401 })
+    }
+    if (error instanceof ForbiddenError) {
+      return new Response("Forbidden", { status: 403 })
     }
     console.error("GET /api/events error:", error)
     return new Response("Internal error", { status: 500 })

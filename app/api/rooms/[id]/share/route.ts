@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getAuthenticatedUserId, AuthError, unauthorizedResponse } from "@/lib/auth-helper"
+import {
+  getAuthenticatedWorkspaceContext,
+  AuthError,
+  ForbiddenError,
+  unauthorizedResponse,
+  forbiddenResponse,
+} from "@/lib/auth-helper"
 import { eventBroadcaster } from "@/lib/event-broadcaster"
 
 function notFound() {
@@ -9,11 +15,11 @@ function notFound() {
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { id } = await params
 
     const existing = await prisma.room.findUnique({
-      where: { id, userId },
+      where: { id, workspaceId },
       select: { id: true, publicShareId: true },
     })
     if (!existing) return notFound()
@@ -47,6 +53,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: "Failed to generate share link" }, { status: 500 })
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     console.error("POST /api/rooms/[id]/share error:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
@@ -57,11 +64,11 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { id } = await params
 
     const existing = await prisma.room.findUnique({
-      where: { id, userId },
+      where: { id, workspaceId },
       select: { id: true, publicShareId: true },
     })
     if (!existing) return notFound()
@@ -80,6 +87,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     return NextResponse.json({ ok: true })
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     console.error("DELETE /api/rooms/[id]/share error:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },

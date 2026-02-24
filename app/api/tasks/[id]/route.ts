@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getAuthenticatedUserId, AuthError, unauthorizedResponse } from "@/lib/auth-helper"
+import {
+  getAuthenticatedWorkspaceContext,
+  AuthError,
+  ForbiddenError,
+  unauthorizedResponse,
+  forbiddenResponse,
+} from "@/lib/auth-helper"
 import { eventBroadcaster } from "@/lib/event-broadcaster"
 
 const AGENT_SELECT = {
@@ -17,10 +23,15 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { id } = await params
-    const existing = await prisma.task.findUnique({ where: { id, userId } })
-    if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
+    const existing = await prisma.task.findUnique({
+      where: { id },
+      include: { room: { select: { workspaceId: true } } },
+    })
+    if (!existing || existing.room.workspaceId !== workspaceId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
 
     const body = await request.json()
     const { title, description, status, priority, assigneeId } = body
@@ -45,7 +56,6 @@ export async function PATCH(
       },
     })
 
-    // Broadcast task update to SSE subscribers
     eventBroadcaster.broadcast({
       type: "task",
       roomId: existing.roomId,
@@ -55,6 +65,7 @@ export async function PATCH(
     return NextResponse.json(task)
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     console.error("PATCH /api/tasks/[id] error:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
@@ -68,13 +79,17 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { id } = await params
-    const existing = await prisma.task.findUnique({ where: { id, userId } })
-    if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
+    const existing = await prisma.task.findUnique({
+      where: { id },
+      include: { room: { select: { workspaceId: true } } },
+    })
+    if (!existing || existing.room.workspaceId !== workspaceId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
     await prisma.task.delete({ where: { id } })
 
-    // Broadcast task deletion to SSE subscribers
     eventBroadcaster.broadcast({
       type: "task",
       roomId: existing.roomId,
@@ -84,6 +99,7 @@ export async function DELETE(
     return NextResponse.json({ success: true })
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     console.error("DELETE /api/tasks/[id] error:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },

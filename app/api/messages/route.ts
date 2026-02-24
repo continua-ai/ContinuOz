@@ -1,6 +1,12 @@
 import { NextResponse, after } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getAuthenticatedUserId, AuthError, unauthorizedResponse } from "@/lib/auth-helper"
+import {
+  getAuthenticatedWorkspaceContext,
+  AuthError,
+  ForbiddenError,
+  unauthorizedResponse,
+  forbiddenResponse,
+} from "@/lib/auth-helper"
 import { eventBroadcaster } from "@/lib/event-broadcaster"
 import { invokeAgent } from "@/lib/invoke-agent"
 import { extractMentionedNames } from "@/lib/mentions"
@@ -10,13 +16,13 @@ export const maxDuration = 300
 
 export async function GET(request: Request) {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { searchParams } = new URL(request.url)
     const roomId = searchParams.get("roomId")
     if (!roomId) return NextResponse.json({ error: "roomId required" }, { status: 400 })
 
     // Verify room belongs to user
-    const room = await prisma.room.findUnique({ where: { id: roomId, userId } })
+    const room = await prisma.room.findUnique({ where: { id: roomId, workspaceId } })
     if (!room) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
     const limit = Math.min(Number(searchParams.get("limit")) || 50, 200)
@@ -57,6 +63,7 @@ export async function GET(request: Request) {
     })
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     console.error("GET /api/messages error:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
@@ -68,12 +75,12 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { userId, workspaceId } = await getAuthenticatedWorkspaceContext()
     const body = await request.json()
     const { roomId, content, authorType = "human", authorId, sessionUrl } = body
 
     // Verify room belongs to user
-    const room = await prisma.room.findUnique({ where: { id: roomId, userId } })
+    const room = await prisma.room.findUnique({ where: { id: roomId, workspaceId } })
     if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 })
 
     const message = await prisma.message.create({
@@ -144,6 +151,7 @@ export async function POST(request: Request) {
                 prompt: content,
                 depth: 0,
                 userId,
+                workspaceId,
               }).catch((err) => {
                 console.error(`[messages] Failed to invoke agent ${mentionedAgent.name}:`, err)
               })
@@ -156,6 +164,7 @@ export async function POST(request: Request) {
     return NextResponse.json(message)
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     console.error("POST /api/messages error:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },

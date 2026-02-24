@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getAuthenticatedUserId, AuthError, unauthorizedResponse } from "@/lib/auth-helper"
+import {
+  getAuthenticatedWorkspaceContext,
+  AuthError,
+  ForbiddenError,
+  unauthorizedResponse,
+  forbiddenResponse,
+} from "@/lib/auth-helper"
 import { eventBroadcaster } from "@/lib/event-broadcaster"
 
 const AGENT_SELECT = {
@@ -14,12 +20,12 @@ const AGENT_SELECT = {
 
 export async function GET(request: Request) {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { searchParams } = new URL(request.url)
     const roomId = searchParams.get("roomId")
     if (!roomId) return NextResponse.json({ error: "roomId required" }, { status: 400 })
 
-    const room = await prisma.room.findUnique({ where: { id: roomId, userId } })
+    const room = await prisma.room.findUnique({ where: { id: roomId, workspaceId } })
     if (!room) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
     const tasks = await prisma.task.findMany({
@@ -34,6 +40,7 @@ export async function GET(request: Request) {
     return NextResponse.json(tasks)
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     console.error("GET /api/tasks error:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
@@ -44,7 +51,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { userId, workspaceId } = await getAuthenticatedWorkspaceContext()
     const body = await request.json()
     const { roomId, title, description, status, priority, assigneeId, createdBy } = body
 
@@ -52,7 +59,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "roomId and title are required" }, { status: 400 })
     }
 
-    const room = await prisma.room.findUnique({ where: { id: roomId, userId } })
+    const room = await prisma.room.findUnique({ where: { id: roomId, workspaceId } })
     if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 })
 
     const task = await prisma.task.create({
@@ -82,6 +89,7 @@ export async function POST(request: Request) {
     return NextResponse.json(task)
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     console.error("POST /api/tasks error:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },

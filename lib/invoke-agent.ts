@@ -16,6 +16,7 @@ export interface InvokeAgentParams {
   prompt: string
   depth?: number
   userId: string | null
+  workspaceId?: string
   /** Optional override for the message/run id used for callbacks + persisted Message.id. */
   invocationId?: string
 }
@@ -48,6 +49,7 @@ export async function invokeAgent({
   prompt,
   depth = 0,
   userId,
+  workspaceId,
   invocationId: invocationIdOverride,
 }: InvokeAgentParams): Promise<InvokeAgentResult> {
   console.log("[invokeAgent] Starting", { roomId, agentId, promptLength: prompt?.length, depth })
@@ -63,7 +65,17 @@ export async function invokeAgent({
   }
 
   // Check if room invocations are paused
-  const roomForPause = await prisma.room.findUnique({ where: { id: roomId }, select: { paused: true } })
+  const roomForPause = await prisma.room.findUnique({
+    where: workspaceId ? { id: roomId, workspaceId } : { id: roomId },
+    select: { paused: true, workspaceId: true },
+  })
+  if (!roomForPause) {
+    return { success: false, error: "Room not found", errorStatus: 404 }
+  }
+  const effectiveWorkspaceId = workspaceId ?? roomForPause.workspaceId ?? undefined
+  if (!effectiveWorkspaceId) {
+    return { success: false, error: "Room is not linked to a workspace", errorStatus: 400 }
+  }
   if (roomForPause?.paused) {
     console.log("[invokeAgent] Room is paused, skipping invocation for", agentId)
     // Reset agent to idle since it was optimistically set to running but won't actually start
@@ -76,7 +88,9 @@ export async function invokeAgent({
   }
 
   // Look up agent config
-  const agent = await prisma.agent.findUnique({ where: { id: agentId } })
+  const agent = await prisma.agent.findUnique({
+    where: { id: agentId, workspaceId: effectiveWorkspaceId },
+  })
   if (!agent) {
     console.log("[invokeAgent] Agent not found:", agentId)
     return { success: false, error: "Agent not found", errorStatus: 404 }
@@ -106,7 +120,7 @@ export async function invokeAgent({
     const callbackUrl = `${callbackBaseUrl}/api/agent-response?roomId=${encodeURIComponent(roomId)}&agentId=${encodeURIComponent(agentId)}`
 
     // Fetch room details and recent chat history
-    const room = await prisma.room.findUnique({ where: { id: roomId } })
+    const room = await prisma.room.findUnique({ where: { id: roomId, workspaceId: effectiveWorkspaceId } })
 
     const roomAgents = await prisma.roomAgent.findMany({
       where: { roomId },
@@ -214,7 +228,7 @@ To mention an agent, include @agent-name in your response message.
     }
     console.log("[invokeAgent] Using environment:", environmentId)
 
-    const taskId = await runAgent({ prompt: fullPrompt, environmentId, userId })
+    const taskId = await runAgent({ prompt: fullPrompt, environmentId, userId, workspaceId: effectiveWorkspaceId })
     console.log("[invokeAgent] Got taskId:", taskId)
     // Persist a mapping so the callback handler can recover the Warp run id
     // and save artifacts even if this serverless function times out.
@@ -228,7 +242,7 @@ To mention an agent, include @agent-name in your response message.
         console.warn("[invokeAgent] Failed to persist warp-run mapping:", err)
       })
 
-    const result = await pollForCompletion(taskId, { userId })
+    const result = await pollForCompletion(taskId, { userId, workspaceId: effectiveWorkspaceId })
 
     // Persist any artifacts returned by the Warp API
     if (result.artifacts && result.artifacts.length > 0) {
@@ -417,6 +431,7 @@ To mention an agent, include @agent-name in your response message.
               prompt: message.content,
               depth: depth + 1,
               userId,
+              workspaceId: effectiveWorkspaceId,
               invocationId: childInvocationId,
             }).catch((err) => {
               console.error(`[invokeAgent] Failed to invoke agent ${mentionedAgent.name}:`, err)

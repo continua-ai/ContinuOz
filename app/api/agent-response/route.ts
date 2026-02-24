@@ -58,9 +58,10 @@ export async function POST(request: Request) {
     if (roomId && agentId) {
       const room = await prisma.room.findUnique({
         where: { id: roomId },
-        select: { userId: true },
+        select: { userId: true, workspaceId: true },
       })
       const userIdForInvocations = decoded?.userId ?? room?.userId ?? null
+      const workspaceIdForInvocations = room?.workspaceId ?? undefined
 
       const message = await prisma.message.upsert({
         where: { id: taskId },
@@ -106,7 +107,7 @@ export async function POST(request: Request) {
           after(async () => {
             for (let attempt = 0; attempt < 6; attempt++) {
               try {
-                const status = await getTaskStatus(warpRunId, userIdForInvocations)
+                const status = await getTaskStatus(warpRunId, userIdForInvocations, workspaceIdForInvocations)
                 const artifacts = status.artifacts ?? []
                 if (artifacts.length > 0) {
                   await saveWarpArtifacts(artifacts, { roomId, agentId, userId: userIdForInvocations })
@@ -222,6 +223,7 @@ export async function POST(request: Request) {
                   prompt: followupPrompt,
                   depth: 1,
                   userId: userIdForInvocations,
+                  workspaceId: workspaceIdForInvocations,
                   invocationId: followupRunId,
                 }).catch((err) => {
                   console.error("[agent-response] Failed to invoke lead for fan-in:", err)
@@ -351,6 +353,7 @@ export async function POST(request: Request) {
                   prompt: messageText,
                   depth: 1,
                   userId: userIdForInvocations,
+                  workspaceId: workspaceIdForInvocations,
                   invocationId,
                 }).catch((err) => {
                   console.error(`[agent-response] Failed to invoke mentioned agent ${mentionedAgent.name}:`, err)

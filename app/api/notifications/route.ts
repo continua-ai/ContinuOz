@@ -1,13 +1,22 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getAuthenticatedUserId, AuthError, unauthorizedResponse } from "@/lib/auth-helper"
+import {
+  getAuthenticatedWorkspaceContext,
+  AuthError,
+  ForbiddenError,
+  unauthorizedResponse,
+  forbiddenResponse,
+} from "@/lib/auth-helper"
 import { eventBroadcaster } from "@/lib/event-broadcaster"
 
 export async function GET() {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { userId, workspaceId } = await getAuthenticatedWorkspaceContext()
     const notifications = await prisma.notification.findMany({
-      where: { userId },
+      where: {
+        userId,
+        room: { workspaceId },
+      },
       include: {
         room: { select: { name: true } },
         agent: { select: { id: true, name: true, color: true, icon: true, status: true, activeRoomId: true } },
@@ -17,6 +26,7 @@ export async function GET() {
     return NextResponse.json(notifications)
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     console.error("GET /api/notifications error:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
@@ -27,7 +37,6 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    // Notifications are created by agents (server-side), so we scope via the room's userId
     const body = await request.json()
     const { roomId, agentId, message } = body
 
@@ -38,39 +47,46 @@ export async function POST(request: Request) {
       )
     }
 
-    const [room, agent] = await Promise.all([
-      prisma.room.findUnique({ where: { id: roomId } }),
-      prisma.agent.findUnique({ where: { id: agentId } }),
-    ])
-
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+      select: { workspaceId: true },
+    })
     if (!room) {
       return NextResponse.json({ error: "Room not found" }, { status: 404 })
     }
+    if (!room.workspaceId) {
+      return NextResponse.json({ error: "Room is not linked to a workspace" }, { status: 400 })
+    }
+
+    const agent = await prisma.agent.findUnique({
+      where: { id: agentId, workspaceId: room.workspaceId },
+      select: { id: true, name: true, color: true, icon: true, status: true, activeRoomId: true },
+    })
     if (!agent) {
       return NextResponse.json({ error: "Agent not found" }, { status: 404 })
     }
 
-    const notification = await prisma.notification.create({
-      data: {
-        message,
-        userId: room.userId,
-        roomId,
-        agentId,
-      },
-      include: {
-        room: { select: { name: true } },
-        agent: { select: { id: true, name: true, color: true, icon: true, status: true, activeRoomId: true } },
-      },
+    const members = await prisma.workspaceMember.findMany({
+      where: { workspaceId: room.workspaceId },
+      select: { userId: true },
     })
 
-    // Broadcast so realtime listeners can update the unread count
+    await prisma.notification.createMany({
+      data: members.map((m) => ({
+        roomId,
+        agentId,
+        message,
+        userId: m.userId,
+      })),
+    })
+
     eventBroadcaster.broadcast({
       type: "notification",
       roomId,
-      data: { action: "created", notification },
+      data: { action: "created" },
     })
 
-    return NextResponse.json(notification, { status: 201 })
+    return NextResponse.json({ ok: true, created: members.length }, { status: 201 })
   } catch (error) {
     console.error("POST /api/notifications error:", error)
     return NextResponse.json(

@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getAuthenticatedUserId, AuthError, unauthorizedResponse } from "@/lib/auth-helper"
+import {
+  getAuthenticatedWorkspaceContext,
+  AuthError,
+  ForbiddenError,
+  unauthorizedResponse,
+  forbiddenResponse,
+} from "@/lib/auth-helper"
 
 export async function GET() {
   try {
-    const userId = await getAuthenticatedUserId()
-    const agents = await prisma.agent.findMany({ where: { userId }, orderBy: { createdAt: "asc" } })
+    const { workspaceId } = await getAuthenticatedWorkspaceContext()
+    const agents = await prisma.agent.findMany({ where: { workspaceId }, orderBy: { createdAt: "asc" } })
     return NextResponse.json(
       agents.map((a) => ({
         ...a,
@@ -16,13 +22,14 @@ export async function GET() {
     )
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     throw error
   }
 }
 
 export async function POST(request: Request) {
   try {
-    const userId = await getAuthenticatedUserId()
+    const { userId, workspaceId } = await getAuthenticatedWorkspaceContext()
     const body = await request.json()
     const agent = await prisma.agent.create({
       data: {
@@ -36,6 +43,7 @@ export async function POST(request: Request) {
         skills: JSON.stringify(body.skills ?? []),
         mcpServers: JSON.stringify(body.mcpServers ?? []),
         scripts: JSON.stringify(body.scripts ?? []),
+        workspaceId,
         userId,
       },
     })
@@ -47,6 +55,7 @@ export async function POST(request: Request) {
     })
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
     console.error("POST /api/agents error:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },

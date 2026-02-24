@@ -18,6 +18,26 @@ Thanks for your interest in contributing! Here's how to get started.
 4. Run `npm run build` to verify the build succeeds
 5. Commit with a clear, descriptive message
 
+## Workspace Collaboration Testing Checklist
+
+When changes touch auth, workspace membership, invites, or Settings team management, validate:
+
+1. **Role rules**
+   - Owner can invite and remove members
+   - Member can invite and revoke invite links
+   - Member cannot remove members
+2. **Invite flow**
+   - Invite link creation + copy works
+   - New user can sign up with invite token and join workspace
+   - Existing user can sign in with invite token and join workspace
+   - Revoked or expired links are rejected
+3. **Workspace data access**
+   - Rooms, agents, tasks, messages, artifacts, and notifications are accessible only within the active workspace
+   - Public room share links still work as view-only
+4. **Shared Warp API key**
+   - Key save/read works in Settings
+   - Agents in the same workspace can invoke using the shared key
+
 ## Pull Requests
 
 - Keep PRs focused on a single change

@@ -51,9 +51,9 @@ const SEED_ROOM = {
     "Your goal is to build a simple to do app and marketing site for it with next.js",
 }
 
-export async function seedNewAccount(userId: string) {
-  // Guard: skip if the user already has agents (idempotent)
-  const existingCount = await prisma.agent.count({ where: { userId } })
+export async function seedNewAccount(userId: string, workspaceId: string) {
+  // Guard: skip if this workspace already has agents (idempotent)
+  const existingCount = await prisma.agent.count({ where: { workspaceId } })
   if (existingCount > 0) return
 
   // Create all agents
@@ -71,6 +71,7 @@ export async function seedNewAccount(userId: string) {
           mcpServers: JSON.stringify([]),
           scripts: JSON.stringify([]),
           status: "idle",
+          workspaceId,
           userId,
         },
       })
@@ -82,6 +83,7 @@ export async function seedNewAccount(userId: string) {
     data: {
       name: SEED_ROOM.name,
       description: SEED_ROOM.description,
+      workspaceId,
       userId,
       agents: {
         create: agents.map((a) => ({ agentId: a.id })),

@@ -9,11 +9,17 @@ import { Button } from "@/components/ui/button"
 
 export default function SignupPage() {
   const router = useRouter()
+  const [inviteToken, setInviteToken] = React.useState<string | null>(null)
   const [name, setName] = React.useState("")
   const [email, setEmail] = React.useState("")
   const [password, setPassword] = React.useState("")
   const [error, setError] = React.useState("")
   const [loading, setLoading] = React.useState(false)
+
+  React.useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get("invite")
+    setInviteToken(token)
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -24,7 +30,7 @@ export default function SignupPage() {
     const res = await fetch("/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, email, password }),
+      body: JSON.stringify({ name, email, password, inviteToken }),
     })
 
     if (!res.ok) {
@@ -57,7 +63,7 @@ export default function SignupPage() {
         <div className="space-y-1 text-center">
           <h1 className="text-2xl font-bold">Oz Workspace</h1>
           <p className="text-sm text-muted-foreground">
-            Create a new account
+            {inviteToken ? "Accept invite and create your account" : "Create a new account"}
           </p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -110,7 +116,7 @@ export default function SignupPage() {
         </form>
         <p className="text-center text-sm text-muted-foreground">
           Already have an account?{" "}
-          <Link href="/login" className="text-foreground underline">
+          <Link href={inviteToken ? `/login?invite=${encodeURIComponent(inviteToken)}` : "/login"} className="text-foreground underline">
             Sign in
           </Link>
         </p>

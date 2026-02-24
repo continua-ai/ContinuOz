@@ -7,6 +7,9 @@ import type {
   Artifact,
   Task,
   Notification,
+  Workspace,
+  WorkspaceMember,
+  WorkspaceInvite,
 } from "@/lib/types"
 
 // ─── Room Store ────────────────────────────────────────────
@@ -76,6 +79,78 @@ export const useRoomStore = create<RoomStore>((set) => ({
       rooms: s.rooms.filter((r) => r.id !== id),
       activeRoomId: s.activeRoomId === id ? null : s.activeRoomId,
     }))
+  },
+}))
+
+// ─── Workspace Store ──────────────────────────────────────
+
+interface WorkspaceStore {
+  workspace: Workspace | null
+  members: WorkspaceMember[]
+  invites: WorkspaceInvite[]
+  fetchWorkspace: () => Promise<void>
+  fetchMembers: () => Promise<void>
+  fetchInvites: () => Promise<void>
+  createInvite: (expiresInDays?: number) => Promise<WorkspaceInvite>
+  revokeInvite: (inviteId: string) => Promise<void>
+  removeMember: (userId: string) => Promise<void>
+}
+
+export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
+  workspace: null,
+  members: [],
+  invites: [],
+  fetchWorkspace: async () => {
+    const res = await fetch("/api/workspace")
+    if (!res.ok) return
+    const workspace = await res.json()
+    set({ workspace })
+  },
+  fetchMembers: async () => {
+    const res = await fetch("/api/workspace/members")
+    if (!res.ok) return
+    const members = await res.json()
+    set({ members })
+  },
+  fetchInvites: async () => {
+    const res = await fetch("/api/workspace/invites")
+    if (!res.ok) return
+    const invites = await res.json()
+    set({ invites })
+  },
+  createInvite: async (expiresInDays) => {
+    const res = await fetch("/api/workspace/invites", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        Number.isFinite(expiresInDays)
+          ? { expiresInDays }
+          : {}
+      ),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Failed to create invite" }))
+      throw new Error(err.error ?? "Failed to create invite")
+    }
+    const invite = await res.json()
+    set((s) => ({ invites: [invite, ...s.invites] }))
+    return invite
+  },
+  revokeInvite: async (inviteId) => {
+    const res = await fetch(`/api/workspace/invites/${inviteId}`, { method: "DELETE" })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Failed to revoke invite" }))
+      throw new Error(err.error ?? "Failed to revoke invite")
+    }
+    set((s) => ({ invites: s.invites.filter((i) => i.id !== inviteId) }))
+  },
+  removeMember: async (userId) => {
+    const res = await fetch(`/api/workspace/members/${userId}`, { method: "DELETE" })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Failed to remove member" }))
+      throw new Error(err.error ?? "Failed to remove member")
+    }
+    set({ members: get().members.filter((m) => m.userId !== userId) })
   },
 }))
 
