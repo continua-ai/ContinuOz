@@ -86,9 +86,13 @@ export const useRoomStore = create<RoomStore>((set) => ({
 
 interface WorkspaceStore {
   workspace: Workspace | null
+  workspaces: Workspace[]
   members: WorkspaceMember[]
   invites: WorkspaceInvite[]
   fetchWorkspace: () => Promise<void>
+  fetchWorkspaces: () => Promise<void>
+  switchWorkspace: (workspaceId: string) => Promise<void>
+  createWorkspace: (name: string) => Promise<Workspace>
   fetchMembers: () => Promise<void>
   fetchInvites: () => Promise<void>
   createInvite: (expiresInDays?: number) => Promise<WorkspaceInvite>
@@ -98,6 +102,7 @@ interface WorkspaceStore {
 
 export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   workspace: null,
+  workspaces: [],
   members: [],
   invites: [],
   fetchWorkspace: async () => {
@@ -105,6 +110,44 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     if (!res.ok) return
     const workspace = await res.json()
     set({ workspace })
+  },
+  fetchWorkspaces: async () => {
+    const res = await fetch("/api/workspaces")
+    if (!res.ok) return
+    const workspaces = await res.json()
+    set({ workspaces })
+  },
+  switchWorkspace: async (workspaceId) => {
+    const res = await fetch("/api/workspace/switch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspaceId }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Failed to switch workspace" }))
+      throw new Error(err.error ?? "Failed to switch workspace")
+    }
+    const workspace = await res.json()
+    set({ workspace, members: [], invites: [] })
+  },
+  createWorkspace: async (name) => {
+    const res = await fetch("/api/workspaces", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Failed to create workspace" }))
+      throw new Error(err.error ?? "Failed to create workspace")
+    }
+    const workspace = await res.json()
+    set((s) => ({
+      workspace,
+      workspaces: [...s.workspaces, workspace],
+      members: [],
+      invites: [],
+    }))
+    return workspace
   },
   fetchMembers: async () => {
     const res = await fetch("/api/workspace/members")

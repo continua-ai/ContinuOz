@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
+import { cookies } from "next/headers"
 import { prisma } from "@/lib/prisma"
-import { getAuthenticatedUserId, AuthError, unauthorizedResponse } from "@/lib/auth-helper"
+import { getAuthenticatedUserId, AuthError, unauthorizedResponse, ACTIVE_WORKSPACE_COOKIE } from "@/lib/auth-helper"
 
 export async function POST(request: Request) {
   try {
@@ -54,6 +55,14 @@ export async function POST(request: Request) {
         where: { id: invite.id },
         data: { acceptedAt: new Date() },
       })
+    })
+
+    // Switch the user's active workspace to the one they just joined
+    const cookieStore = await cookies()
+    cookieStore.set(ACTIVE_WORKSPACE_COOKIE, invite.workspaceId, {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
     })
 
     return NextResponse.json({ ok: true, workspaceId: invite.workspaceId })
