@@ -42,6 +42,7 @@ export async function GET(request: Request) {
       },
       include: {
         agent: { select: { id: true, name: true, color: true, icon: true, status: true, activeRoomId: true } },
+        user: { select: { id: true, name: true } },
       },
       orderBy: { timestamp: "desc" },
       take: limit,
@@ -57,6 +58,7 @@ export async function GET(request: Request) {
         ...m,
         author: m.authorType === "agent" ? m.agent : undefined,
         agent: undefined,
+        user: m.authorType === "human" ? m.user : undefined,
       })),
       hasMore,
       nextCursor: messages.length > 0 ? messages[0].id : null,
@@ -94,18 +96,22 @@ export async function POST(request: Request) {
       },
       include: {
         agent: { select: { id: true, name: true, color: true, icon: true, status: true, activeRoomId: true } },
+        user: { select: { id: true, name: true } },
       },
     })
+
+    const responseMessage = {
+      ...message,
+      author: message.authorType === "agent" ? message.agent : undefined,
+      agent: undefined,
+      user: message.authorType === "human" ? message.user : undefined,
+    }
 
     // Broadcast new message to SSE subscribers
     eventBroadcaster.broadcast({
       type: "message",
       roomId,
-      data: {
-        ...message,
-        author: message.authorType === "agent" ? message.agent : undefined,
-        agent: undefined,
-      },
+      data: responseMessage,
     })
 
     // If this is a human message, check for @mentions and dispatch mentioned agents
@@ -161,7 +167,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json(message)
+    return NextResponse.json(responseMessage)
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
     if (error instanceof ForbiddenError) return forbiddenResponse(error.message)

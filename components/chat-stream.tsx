@@ -155,7 +155,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, agents }: { m
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2">
           <span className="text-sm font-semibold">
-            {isHuman ? "You" : (message.author?.name ?? "Agent")}
+            {isHuman ? (message.user?.name ?? "User") : (message.author?.name ?? "Agent")}
           </span>
           <span className="text-xs text-muted-foreground">{formatTime(message.timestamp)}</span>
         </div>

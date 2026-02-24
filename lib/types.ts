@@ -50,6 +50,10 @@ export interface Message {
   sessionUrl?: string | null
   timestamp: string
   author?: AgentSummary
+  user?: {
+    id: string
+    name: string
+  } | null
 }
 
 export interface Artifact {

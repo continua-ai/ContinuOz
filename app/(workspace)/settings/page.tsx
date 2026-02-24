@@ -28,6 +28,7 @@ export default function SettingsPage() {
   const [teamError, setTeamError] = React.useState<string | null>(null)
   const [inviteBusy, setInviteBusy] = React.useState(false)
   const [generatedInviteUrl, setGeneratedInviteUrl] = React.useState("")
+  const [copiedLatestInvite, setCopiedLatestInvite] = React.useState(false)
   const [removingUserId, setRemovingUserId] = React.useState<string | null>(null)
   const [revokingInviteId, setRevokingInviteId] = React.useState<string | null>(null)
   const [origin, setOrigin] = React.useState("")
@@ -49,6 +50,16 @@ export default function SettingsPage() {
     setOrigin(window.location.origin)
   }, [])
 
+  React.useEffect(() => {
+    if (!copiedLatestInvite) return
+    const timeout = setTimeout(() => setCopiedLatestInvite(false), 1500)
+    return () => clearTimeout(timeout)
+  }, [copiedLatestInvite])
+
+  React.useEffect(() => {
+    setCopiedLatestInvite(false)
+  }, [generatedInviteUrl])
+
   const handleSave = async () => {
     setSaving(true)
     await updateSetting("warp_api_key", apiKey)
@@ -69,6 +80,11 @@ export default function SettingsPage() {
     } finally {
       setInviteBusy(false)
     }
+  }
+
+  const handleCopyLatestInvite = async () => {
+    const copied = await copyText(generatedInviteUrl)
+    if (copied) setCopiedLatestInvite(true)
   }
 
   const handleRevokeInvite = async (inviteId: string) => {
@@ -95,12 +111,14 @@ export default function SettingsPage() {
     }
   }
 
-  const copyText = async (text: string) => {
-    if (!text) return
+  const copyText = async (text: string): Promise<boolean> => {
+    if (!text) return false
     try {
       await navigator.clipboard.writeText(text)
+      return true
     } catch {
       setTeamError("Failed to copy to clipboard")
+      return false
     }
   }
 
@@ -198,9 +216,9 @@ export default function SettingsPage() {
                   {inviteBusy ? "Creating..." : "Create invite link"}
                 </Button>
                 {generatedInviteUrl && (
-                  <Button variant="outline" onClick={() => copyText(generatedInviteUrl)}>
+                  <Button variant="outline" onClick={handleCopyLatestInvite}>
                     <CopyIcon className="h-4 w-4" />
-                    Copy latest link
+                    {copiedLatestInvite ? "Copied" : "Copy latest link"}
                   </Button>
                 )}
               </div>
