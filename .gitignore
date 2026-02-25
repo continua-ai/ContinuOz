@@ -50,3 +50,4 @@ next-env.d.ts
 
 # prisma generated client
 /lib/generated/prisma
+.env*.local
