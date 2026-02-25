@@ -57,7 +57,7 @@ export default function LoginPage() {
     <div className="flex min-h-svh items-center justify-center">
       <div className="w-full max-w-sm space-y-6 px-4">
         <div className="space-y-1 text-center">
-          <h1 className="text-2xl font-bold">Oz Workspace</h1>
+          <h1 className="text-2xl font-bold">ContinuOz Workspace</h1>
           <p className="text-sm text-muted-foreground">
             {inviteToken ? "Sign in to accept your invite" : "Sign in to your account"}
           </p>

@@ -1,4 +1,4 @@
-# Contributing to Oz Workspace
+# Contributing to ContinuOz Workspace
 
 Thanks for your interest in contributing! Here's how to get started.
 

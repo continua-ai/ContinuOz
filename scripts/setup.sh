@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Quick setup script for Oz Workspace development
+# Quick setup script for ContinuOz Workspace development
 set -euo pipefail
 
 # Helper to set a value in .env.local (handles macOS/Linux sed differences)
@@ -12,7 +12,7 @@ set_env_var() {
   fi
 }
 
-echo "=== Oz Workspace Setup ==="
+echo "=== ContinuOz Workspace Setup ==="
 
 # 1. Install dependencies
 echo ""
@@ -35,7 +35,7 @@ if [ ! -f .env.local ]; then
   # --- Warp API Key ---
   echo ""
   echo "--- Warp API Key ---"
-  echo "An API key is required to run Oz agents."
+  echo "An API key is required to run ContinuOz agents."
   echo "Generate one in the Warp app under Settings > Platform."
   echo ""
   read -rp "Paste your Warp API key (or press Enter to skip): " WARP_API_KEY_INPUT

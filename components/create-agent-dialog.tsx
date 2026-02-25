@@ -118,7 +118,7 @@ export function CreateAgentDialog({
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className="rounded bg-blue-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-500">Tip</span>
-                    <p>Copy instructions into Warp to get Oz to set up your env</p>
+                    <p>Copy instructions into Warp to get ContinuOz to set up your env</p>
                   </div>
                   <Button
                     type="button"

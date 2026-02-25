@@ -130,7 +130,7 @@ export function AppSidebar() {
               <button className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-sidebar-accent focus-visible:outline-none">
                 <OzLogo />
                 <span className="flex-1 truncate text-sm font-semibold tracking-tight">
-                  {workspace?.name ?? "Oz Workspace"}
+                  {workspace?.name ?? "ContinuOz Workspace"}
                 </span>
                 {switchingWsId ? (
                   <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />

@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Oz Workspace",
+  title: "ContinuOz Workspace",
   description: "A collaborative AI agent workspace",
 };
 

@@ -45,9 +45,9 @@ export default function HomePage() {
       </header>
       <div className="flex-1 overflow-auto px-6">
         <div className="mx-auto max-w-lg" style={{ paddingTop: "4rem", paddingBottom: "4rem" }}>
-          <h2 className="text-lg font-semibold">Welcome to Oz Workspace</h2>
+          <h2 className="text-lg font-semibold">Welcome to ContinuOz Workspace</h2>
           <p className="text-sm text-muted-foreground leading-relaxed" style={{ marginTop: "0.5rem" }}>
-            Oz is a multi-agent chat room where you can create AI agents,
+            ContinuOz is a multi-agent chat room where you can create AI agents,
             assign them to project rooms, and collaborate through conversation.
           </p>
 

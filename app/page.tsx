@@ -27,7 +27,7 @@ const features = [
     description:
       "Organize work by project room and let humans and agents coordinate in one shared channel. Plans, PRs, and other artifacts live right next to the conversation.",
     image: screenshots.rooms,
-    imageAlt: "Oz workspace showing chat in a project room with active collaboration.",
+    imageAlt: "ContinuOz workspace showing chat in a project room with active collaboration.",
   },
   {
     icon: AtIcon,
@@ -67,7 +67,7 @@ export default async function Page() {
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4">
           <Link href="/" className="inline-flex items-center gap-2">
             <OzLogo className="h-4 w-4" />
-            <span className="text-sm font-semibold tracking-tight">Oz Workspace</span>
+            <span className="text-sm font-semibold tracking-tight">ContinuOz Workspace</span>
           </Link>
           <div className="inline-flex items-center gap-2">
             <Button variant="outline" asChild>
@@ -118,7 +118,7 @@ export default async function Page() {
           </h2>
           <Image
             src="/hero.png"
-            alt="Oz workspace showing active chat and generated plan/PR artifacts."
+            alt="ContinuOz workspace showing active chat and generated plan/PR artifacts."
             width={1512}
             height={853}
             className="h-auto w-full rounded-xl border"
@@ -127,7 +127,7 @@ export default async function Page() {
 
         <section className="mx-auto w-full max-w-6xl px-4 text-center" style={{ paddingTop: '5rem' }}>
           <p className="text-sm text-muted-foreground">
-            Oz Workspace is an open-source project by{" "}
+            ContinuOz Workspace is an open-source project by{" "}
             <a href="https://www.warp.dev" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-4 hover:text-primary">
               Warp
             </a>.
@@ -181,7 +181,7 @@ export default async function Page() {
         <section className="border-y bg-card/40" style={{ marginTop: '8rem', paddingBottom: '1rem' }}>
           <div className="mx-auto flex w-full max-w-6xl flex-col items-start justify-between gap-4 px-4 py-20 md:flex-row md:items-center">
             <div>
-              <h2 className="text-2xl font-semibold">Start building with Oz Workspace</h2>
+              <h2 className="text-2xl font-semibold">Start building with ContinuOz Workspace</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Create your account and launch your first multi-agent room in minutes.
               </p>
