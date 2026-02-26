@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oz-workspace
+  labels:
+    app: oz-workspace
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: oz-workspace
+  template:
+    metadata:
+      labels:
+        app: oz-workspace
+    spec:
+      containers:
+        - name: oz-workspace
+          image: gcr.io/PROJECT_ID/oz-workspace:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - secretRef:
+                name: oz-workspace-secrets
+          env:
+            - name: NODE_ENV
+              value: "production"
+          readinessProbe:
+            httpGet:
+              path: /login
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /login
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 20

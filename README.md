@@ -13,7 +13,7 @@ ContinuOz Workspace is an open-source collaborative AI agent workspace built wit
 ## Tech Stack
 
 - [Next.js 16](https://nextjs.org) (App Router)
-- [Prisma 7](https://www.prisma.io) with SQLite via [Turso / libSQL](https://turso.tech)
+- [Prisma 7](https://www.prisma.io) with SQLite (Turso/libSQL) or Postgres
 - [NextAuth v5](https://next-auth.js.org) (credentials-based JWT auth)
 - [Tailwind CSS 4](https://tailwindcss.com) + [shadcn/ui](https://ui.shadcn.com)
 - [Zustand](https://zustand-demo.pmnd.rs) for client state
@@ -24,7 +24,7 @@ ContinuOz Workspace is an open-source collaborative AI agent workspace built wit
 - **Node.js** ≥ 20
 - **npm** (ships with Node)
 - A [**Warp**](https://www.warp.dev) account with an API key (for running agents)
-- Optionally, a **Turso** database for production — local dev uses a file-based SQLite DB
+- A database: **Turso/libSQL** (SQLite-compatible) or **Postgres**
 
 ## Getting Started
 
@@ -82,8 +82,28 @@ See `.env.example` for the full list of options.
 Generate the Prisma client and push the schema:
 
 ```bash
+# SQLite/libSQL
 npx prisma generate
 npx prisma db push
+```
+
+For Postgres (local or managed), start a database (Docker Compose example):
+
+```bash
+docker compose -f docker-compose.postgres.yml up -d
+```
+
+Set the database URL:
+
+```bash
+DATABASE_URL="postgresql://oz:oz@localhost:5432/oz_workspace?schema=public"
+```
+
+Then use the Postgres schema:
+
+```bash
+npx prisma generate --schema prisma/schema.postgres.prisma
+npx prisma db push --schema prisma/schema.postgres.prisma
 ```
 
 ### 4. Run the development server
@@ -130,7 +150,8 @@ components/          # React components
 hooks/               # Custom React hooks
 lib/                 # Shared utilities (prisma client, auth, event broadcaster, etc.)
 prisma/
-  schema.prisma      # Database schema
+  schema.prisma      # SQLite/libSQL schema
+  schema.postgres.prisma  # Postgres schema
 ```
 
 ## Scripts
@@ -141,6 +162,52 @@ prisma/
 | `npm run build` | Generate Prisma client & build for production |
 | `npm run start` | Start the production server |
 | `npm run lint` | Run ESLint |
+| `npm run db:generate:postgres` | Generate Prisma client using the Postgres schema |
+| `npm run db:push:postgres` | Push Postgres schema to the database |
+
+## GKE deployment (app only)
+
+Use the helper script to build, push, update the secret, and apply manifests:
+
+```bash
+PROJECT_ID=your-project \
+DATABASE_URL='postgresql://USER:PASSWORD@HOST:5432/oz_workspace?schema=public' \
+AUTH_SECRET='...' WARP_API_KEY='...' WARP_ENVIRONMENT_ID='...' \
+AGENT_CALLBACK_URL='https://your-domain.example.com' AGENT_API_KEY='...' \
+./scripts/deploy.sh
+```
+
+You can also store env vars in a file and have the script source it:
+
+```bash
+ENV_FILE=.env.gcp ./scripts/deploy.sh
+```
+
+The script defaults to:
+- `PRISMA_SCHEMA=prisma/schema.postgres.prisma`
+- `IMAGE_NAME=oz-workspace`, `IMAGE_TAG=latest`
+- `SECRET_NAME=oz-workspace-secrets`
+- `NAMESPACE=default`
+
+### StatefulSet Postgres (quick testing)
+
+For a quick in-cluster Postgres (not production), set `POSTGRES_MODE=statefulset`:
+
+```bash
+PROJECT_ID=your-project \
+POSTGRES_MODE=statefulset \
+AUTH_SECRET='...' WARP_API_KEY='...' WARP_ENVIRONMENT_ID='...' \
+AGENT_CALLBACK_URL='https://your-domain.example.com' AGENT_API_KEY='...' \
+./scripts/deploy.sh
+```
+
+The script will create a Postgres StatefulSet and set `DATABASE_URL` to:
+
+```
+postgresql://oz:oz@oz-postgres:5432/oz_workspace?schema=public
+```
+
+When you wire a managed Postgres instance, set `DATABASE_URL` and rerun the script. The Service is a `LoadBalancer`, so GKE will provision a public IP.
 
 ## Contributing
 
