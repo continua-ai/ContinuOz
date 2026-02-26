@@ -181,8 +181,9 @@ Use it to create tasks for work you plan to do, move them to in_progress when yo
 
 Your agent ID is: ${agentId}
 Room ID: ${roomId}
-Base URL for task API: ${callbackBaseUrl}
-Agent API Key: ${agentApiKey}
+Task API base URL: ${callbackBaseUrl}
+Task API endpoint: ${callbackBaseUrl}/api/agent/tasks
+Use header: X-Agent-Key: ${agentApiKey}
 
 Current room tasks:
 ${taskSummary}

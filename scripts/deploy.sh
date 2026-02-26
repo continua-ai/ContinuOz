@@ -52,7 +52,7 @@ if [ "$POSTGRES_MODE" = "statefulset" ] && [ -z "${DATABASE_URL:-}" ]; then
   DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_SERVICE_NAME}:5432/${POSTGRES_DB}?schema=public"
 fi
 
-required_vars=(DATABASE_URL AUTH_SECRET WARP_API_KEY WARP_ENVIRONMENT_ID AGENT_CALLBACK_URL AGENT_API_KEY)
+required_vars=(DATABASE_URL AUTH_SECRET WARP_API_KEY WARP_ENVIRONMENT_ID AGENT_CALLBACK_URL AGENT_API_KEY AUTH_URL)
 missing=0
 for var in "${required_vars[@]}"; do
   if [ -z "${!var:-}" ]; then
@@ -115,6 +115,7 @@ if [ "$SKIP_APPLY" -eq 0 ]; then
     --from-literal=WARP_ENVIRONMENT_ID="$WARP_ENVIRONMENT_ID" \
     --from-literal=AGENT_CALLBACK_URL="$AGENT_CALLBACK_URL" \
     --from-literal=AGENT_API_KEY="$AGENT_API_KEY" \
+    --from-literal=AUTH_URL="$AUTH_URL" \
     --dry-run=client -o yaml \
     -n "$NAMESPACE" | kubectl apply -f -; then
     echo "Failed to update secret."
