@@ -1,6 +1,11 @@
 import "dotenv/config"
 
-if (!process.env.TURSO_DATABASE_URL && process.env.DATABASE_URL) {
+function isLibsqlUrl(url: string | undefined): boolean {
+  if (!url) return false
+  return url.startsWith("libsql:") || url.startsWith("file:") || url.startsWith("sqlite:")
+}
+
+if (!process.env.TURSO_DATABASE_URL && isLibsqlUrl(process.env.DATABASE_URL)) {
   process.env.TURSO_DATABASE_URL = process.env.DATABASE_URL
 }
 

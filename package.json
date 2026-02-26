@@ -6,13 +6,16 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
-    "db:backfill-workspaces": "tsx scripts/backfill-workspaces.ts"
+    "db:backfill-workspaces": "tsx scripts/backfill-workspaces.ts",
+    "db:generate:postgres": "prisma generate --schema prisma/schema.postgres.prisma",
+    "db:push:postgres": "prisma db push --schema prisma/schema.postgres.prisma"
   },
   "dependencies": {
     "@base-ui/react": "^1.1.0",
     "@libsql/client": "^0.17.0",
     "@phosphor-icons/react": "^2.1.10",
     "@prisma/adapter-libsql": "^7.3.0",
+    "@prisma/adapter-pg": "^7.4.1",
     "@prisma/client": "^7.3.0",
     "@tanstack/react-virtual": "^3.13.18",
     "@types/bcryptjs": "^2.4.6",
@@ -24,6 +27,7 @@
     "next": "16.1.6",
     "next-auth": "^5.0.0-beta.30",
     "oz-agent-sdk": "^1.0.0-alpha.8",
+    "pg": "^8.19.0",
     "prisma": "^7.3.0",
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
@@ -42,6 +46,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.16.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "dotenv": "^17.2.4",
