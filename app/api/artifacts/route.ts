@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import {
-  getAuthenticatedWorkspaceContext,
+  requireRoomMembership,
   AuthError,
   ForbiddenError,
   unauthorizedResponse,
@@ -10,13 +10,11 @@ import {
 
 export async function GET(request: Request) {
   try {
-    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { searchParams } = new URL(request.url)
     const roomId = searchParams.get("roomId")
     if (!roomId) return NextResponse.json({ error: "roomId required" }, { status: 400 })
 
-    const room = await prisma.room.findUnique({ where: { id: roomId, workspaceId } })
-    if (!room) return NextResponse.json({ error: "Not found" }, { status: 404 })
+    await requireRoomMembership(roomId)
 
     const artifacts = await prisma.artifact.findMany({
       where: { roomId },
@@ -40,10 +38,13 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { userId, workspaceId } = await getAuthenticatedWorkspaceContext()
     const body = await request.json()
+    if (!body.roomId) {
+      return NextResponse.json({ error: "roomId required" }, { status: 400 })
+    }
+    const { userId } = await requireRoomMembership(body.roomId)
 
-    const room = await prisma.room.findUnique({ where: { id: body.roomId, workspaceId } })
+    const room = await prisma.room.findUnique({ where: { id: body.roomId } })
     if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 })
 
     const artifact = await prisma.artifact.create({

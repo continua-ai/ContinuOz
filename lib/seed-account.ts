@@ -88,6 +88,13 @@ export async function seedNewAccount(userId: string, workspaceId: string) {
       agents: {
         create: agents.map((a) => ({ agentId: a.id })),
       },
+      members: {
+        create: {
+          userId,
+          role: "OWNER",
+          invitedByUserId: null,
+        },
+      },
     },
   })
 }

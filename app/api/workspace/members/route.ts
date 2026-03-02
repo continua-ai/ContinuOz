@@ -33,3 +33,61 @@ export async function GET() {
     throw error
   }
 }
+
+export async function POST(request: Request) {
+  try {
+    const { workspaceId, role, userId: inviterId } = await getAuthenticatedWorkspaceContext()
+    if (role !== "OWNER") {
+      return forbiddenResponse("Only owners can add members")
+    }
+
+    const body = await request.json()
+    const { userId } = body as { userId?: string }
+    if (!userId) {
+      return NextResponse.json({ error: "userId is required" }, { status: 400 })
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, email: true },
+    })
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 })
+    }
+
+    const existing = await prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+      select: { userId: true },
+    })
+    if (existing) {
+      return NextResponse.json({ error: "User already in workspace" }, { status: 409 })
+    }
+
+    const member = await prisma.workspaceMember.create({
+      data: {
+        workspaceId,
+        userId,
+        role: "MEMBER",
+        invitedByUserId: inviterId,
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+      },
+    })
+
+    return NextResponse.json(
+      {
+        userId: member.userId,
+        role: member.role,
+        invitedByUserId: member.invitedByUserId,
+        createdAt: member.createdAt,
+        user: member.user,
+      },
+      { status: 201 }
+    )
+  } catch (error) {
+    if (error instanceof AuthError) return unauthorizedResponse()
+    if (error instanceof ForbiddenError) return forbiddenResponse(error.message)
+    throw error
+  }
+}

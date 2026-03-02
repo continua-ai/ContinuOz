@@ -6,6 +6,13 @@ export type TaskStatus = "backlog" | "in_progress" | "done"
 export type TaskPriority = "low" | "medium" | "high"
 export type WorkspaceRole = "OWNER" | "MEMBER"
 
+export interface User {
+  id: string
+  name: string
+  email: string
+  createdAt: string
+}
+
 export interface Room {
   id: string
   name: string
@@ -13,6 +20,7 @@ export interface Room {
   paused?: boolean
   publicShareId?: string | null
   createdAt: string
+  memberRole?: WorkspaceRole
   agents?: AgentSummary[]
 }
 
@@ -86,12 +94,18 @@ export interface Task {
 export interface Notification {
   id: string
   roomId: string
-  agentId: string
+  agentId?: string | null
+  senderUserId?: string | null
   message: string
   read: boolean
   timestamp: string
   room?: { name: string }
-  agent?: AgentSummary
+  agent?: AgentSummary | null
+  senderUser?: {
+    id: string
+    name: string
+    email: string
+  } | null
 }
 
 export interface Workspace {
@@ -104,6 +118,18 @@ export interface Workspace {
 }
 
 export interface WorkspaceMember {
+  userId: string
+  role: WorkspaceRole
+  invitedByUserId?: string | null
+  createdAt: string
+  user: {
+    id: string
+    name: string
+    email: string
+  }
+}
+
+export interface RoomMember {
   userId: string
   role: WorkspaceRole
   invitedByUserId?: string | null

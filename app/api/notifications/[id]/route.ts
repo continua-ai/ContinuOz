@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import {
-  getAuthenticatedWorkspaceContext,
+  getAuthenticatedUserId,
   AuthError,
   ForbiddenError,
   unauthorizedResponse,
@@ -10,10 +10,18 @@ import {
 
 export async function PATCH(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { userId, workspaceId } = await getAuthenticatedWorkspaceContext()
+    const userId = await getAuthenticatedUserId()
     const { id } = await params
     const existing = await prisma.notification.findFirst({
-      where: { id, userId, room: { workspaceId } },
+      where: {
+        id,
+        userId,
+        room: {
+          members: {
+            some: { userId },
+          },
+        },
+      },
       select: { id: true },
     })
     if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
@@ -31,10 +39,18 @@ export async function PATCH(_req: Request, { params }: { params: Promise<{ id: s
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { userId, workspaceId } = await getAuthenticatedWorkspaceContext()
+    const userId = await getAuthenticatedUserId()
     const { id } = await params
     const existing = await prisma.notification.findFirst({
-      where: { id, userId, room: { workspaceId } },
+      where: {
+        id,
+        userId,
+        room: {
+          members: {
+            some: { userId },
+          },
+        },
+      },
       select: { id: true },
     })
     if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })

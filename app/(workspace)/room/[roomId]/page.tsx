@@ -41,15 +41,16 @@ import { Textarea } from "@/components/ui/textarea"
 import { ChatStream } from "@/components/chat-stream"
 import { ArtifactsPanel } from "@/components/artifacts-panel"
 import { KanbanBoard } from "@/components/kanban-board"
-import { ManageAgentsDialog } from "@/components/manage-agents-dialog"
-import { useRoomStore } from "@/lib/stores"
+import { ManageMembersDialog } from "@/components/manage-members-dialog"
+import { useRoomMemberStore, useRoomStore } from "@/lib/stores"
 
 export default function RoomPage({ params }: { params: Promise<{ roomId: string }> }) {
   const { roomId } = use(params)
   const router = useRouter()
   const { rooms, deleteRoom, updateRoomDescription, refreshRoom } = useRoomStore()
+  const { membersByRoom, fetchRoomMembers } = useRoomMemberStore()
   const room = rooms.find((r) => r.id === roomId)
-  const [manageAgentsOpen, setManageAgentsOpen] = React.useState(false)
+  const [manageMembersOpen, setManageMembersOpen] = React.useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
   const [descriptionDialogOpen, setDescriptionDialogOpen] = React.useState(false)
   const [descriptionDraft, setDescriptionDraft] = React.useState("")
@@ -62,6 +63,10 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
   React.useEffect(() => {
     setMounted(true)
   }, [])
+
+  React.useEffect(() => {
+    fetchRoomMembers(roomId)
+  }, [fetchRoomMembers, roomId])
 
   const handleDelete = async () => {
     await deleteRoom(roomId)
@@ -144,7 +149,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
               variant="ghost"
               size="sm"
               className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
-              onClick={() => setManageAgentsOpen(true)}
+              onClick={() => setManageMembersOpen(true)}
             >
               <div className="flex -space-x-1">
                 {(room?.agents ?? []).slice(0, 3).map((agent) => (
@@ -156,7 +161,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
                 ))}
               </div>
               <UsersIcon className="h-3.5 w-3.5" />
-              <span>{room?.agents?.length ?? 0}</span>
+              <span>{membersByRoom[roomId]?.length ?? 0}</span>
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -255,9 +260,9 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <ManageAgentsDialog
-        open={manageAgentsOpen}
-        onOpenChange={setManageAgentsOpen}
+      <ManageMembersDialog
+        open={manageMembersOpen}
+        onOpenChange={setManageMembersOpen}
         roomId={roomId}
       />
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

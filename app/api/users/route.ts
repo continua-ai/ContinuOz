@@ -8,22 +8,14 @@ import {
   forbiddenResponse,
 } from "@/lib/auth-helper"
 
-export async function POST() {
+export async function GET() {
   try {
-    const userId = await getAuthenticatedUserId()
-    await prisma.notification.updateMany({
-      where: {
-        userId,
-        read: false,
-        room: {
-          members: {
-            some: { userId },
-          },
-        },
-      },
-      data: { read: true },
+    await getAuthenticatedUserId()
+    const users = await prisma.user.findMany({
+      select: { id: true, name: true, email: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
     })
-    return NextResponse.json({ ok: true })
+    return NextResponse.json(users)
   } catch (error) {
     if (error instanceof AuthError) return unauthorizedResponse()
     if (error instanceof ForbiddenError) return forbiddenResponse(error.message)

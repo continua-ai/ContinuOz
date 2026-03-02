@@ -1,7 +1,7 @@
 import { NextResponse, after } from "next/server"
 import { prisma } from "@/lib/prisma"
 import {
-  getAuthenticatedWorkspaceContext,
+  requireRoomMembership,
   AuthError,
   ForbiddenError,
   unauthorizedResponse,
@@ -16,14 +16,11 @@ export const maxDuration = 300
 
 export async function GET(request: Request) {
   try {
-    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { searchParams } = new URL(request.url)
     const roomId = searchParams.get("roomId")
     if (!roomId) return NextResponse.json({ error: "roomId required" }, { status: 400 })
 
-    // Verify room belongs to user
-    const room = await prisma.room.findUnique({ where: { id: roomId, workspaceId } })
-    if (!room) return NextResponse.json({ error: "Not found" }, { status: 404 })
+    await requireRoomMembership(roomId)
 
     const limit = Math.min(Number(searchParams.get("limit")) || 50, 200)
     const cursor = searchParams.get("cursor") // message ID to paginate before
@@ -77,12 +74,15 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { userId, workspaceId } = await getAuthenticatedWorkspaceContext()
     const body = await request.json()
     const { roomId, content, authorType = "human", authorId, sessionUrl } = body
 
-    // Verify room belongs to user
-    const room = await prisma.room.findUnique({ where: { id: roomId, workspaceId } })
+    if (!roomId) {
+      return NextResponse.json({ error: "roomId required" }, { status: 400 })
+    }
+
+    const { userId, workspaceId } = await requireRoomMembership(roomId)
+    const room = await prisma.room.findUnique({ where: { id: roomId } })
     if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 })
 
     const message = await prisma.message.create({
@@ -157,13 +157,50 @@ export async function POST(request: Request) {
                 prompt: content,
                 depth: 0,
                 userId,
-                workspaceId,
+                workspaceId: workspaceId ?? undefined,
               }).catch((err) => {
                 console.error(`[messages] Failed to invoke agent ${mentionedAgent.name}:`, err)
               })
             })
           )
         })
+      }
+
+      if (userId) {
+        const roomMembers = await prisma.roomMember.findMany({
+          where: { roomId },
+          include: { user: { select: { id: true, name: true } } },
+        })
+        const otherUsers = roomMembers
+          .map((m) => m.user)
+          .filter((u): u is { id: string; name: string } => !!u && u.id !== userId)
+
+        const mentionedUserNames = extractMentionedNames(
+          content,
+          otherUsers.map((u) => u.name)
+        )
+
+        if (mentionedUserNames.length > 0) {
+          const mentionedUserMap = new Map(
+            otherUsers.map((u) => [u.name.toLowerCase(), u])
+          )
+          const mentionedUsers = mentionedUserNames
+            .map((name) => mentionedUserMap.get(name.toLowerCase()))
+            .filter((u): u is { id: string; name: string } => !!u)
+
+          if (mentionedUsers.length > 0) {
+            await prisma.notification.createMany({
+              data: mentionedUsers.map((u) => ({
+                roomId,
+                agentId: null,
+                senderUserId: userId,
+                message: content,
+                userId: u.id,
+              })),
+            })
+            eventBroadcaster.broadcast({ type: "notification", roomId, data: { action: "created" } })
+          }
+        }
       }
     }
 

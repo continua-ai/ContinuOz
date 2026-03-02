@@ -46,16 +46,16 @@ export default function InboxPage() {
               >
                 <Avatar className="h-7 w-7 shrink-0">
                   <AvatarFallback
-                    style={{ backgroundColor: notif.agent?.color ?? "#3B82F6" }}
+                    style={{ backgroundColor: notif.agent?.color ?? "#4B5563" }}
                     className="text-white text-xs"
                   >
-                    {notif.agent?.name?.[0] ?? "A"}
+                    {(notif.agent?.name ?? notif.senderUser?.name ?? "U")[0]}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium">
-                      {notif.agent?.name ?? "Agent"}
+                      {notif.agent?.name ?? notif.senderUser?.name ?? "User"}
                     </span>
                     {notif.room && (
                       <Link

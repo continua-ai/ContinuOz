@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import {
-  getAuthenticatedWorkspaceContext,
+  requireRoomMembership,
   AuthError,
   ForbiddenError,
   unauthorizedResponse,
@@ -14,7 +14,6 @@ export const maxDuration = 300
 export async function POST(request: Request) {
   console.log("[invoke] Received request")
   try {
-    const { userId, workspaceId } = await getAuthenticatedWorkspaceContext()
     const body = await request.json()
     const { roomId, agentId, prompt, depth } = body
     console.log("[invoke] Body:", { roomId, agentId, promptLength: prompt?.length, depth })
@@ -33,7 +32,12 @@ export async function POST(request: Request) {
       )
     }
 
-    const room = await prisma.room.findUnique({ where: { id: roomId, workspaceId } })
+    const { userId, workspaceId } = await requireRoomMembership(roomId)
+    if (!workspaceId) {
+      return NextResponse.json({ error: "Room is not linked to a workspace" }, { status: 400 })
+    }
+
+    const room = await prisma.room.findUnique({ where: { id: roomId } })
     if (!room) return NextResponse.json({ error: "Room not found" }, { status: 404 })
 
     const membership = await prisma.roomAgent.findUnique({

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import {
-  getAuthenticatedWorkspaceContext,
+  requireRoomMembership,
   AuthError,
   ForbiddenError,
   unauthorizedResponse,
@@ -15,11 +15,11 @@ function notFound() {
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { id } = await params
+    await requireRoomMembership(id)
 
     const existing = await prisma.room.findUnique({
-      where: { id, workspaceId },
+      where: { id },
       select: { id: true, publicShareId: true },
     })
     if (!existing) return notFound()
@@ -64,11 +64,11 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { id } = await params
+    await requireRoomMembership(id)
 
     const existing = await prisma.room.findUnique({
-      where: { id, workspaceId },
+      where: { id },
       select: { id: true, publicShareId: true },
     })
     if (!existing) return notFound()

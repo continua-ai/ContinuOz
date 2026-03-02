@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import {
-  getAuthenticatedWorkspaceContext,
+  requireRoomMembership,
   AuthError,
   ForbiddenError,
   unauthorizedResponse,
@@ -23,15 +23,15 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { id } = await params
     const existing = await prisma.task.findUnique({
       where: { id },
-      include: { room: { select: { workspaceId: true } } },
+      include: { room: { select: { id: true } } },
     })
-    if (!existing || existing.room.workspaceId !== workspaceId) {
+    if (!existing) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
+    await requireRoomMembership(existing.roomId)
 
     const body = await request.json()
     const { title, description, status, priority, assigneeId } = body
@@ -79,15 +79,15 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { id } = await params
     const existing = await prisma.task.findUnique({
       where: { id },
-      include: { room: { select: { workspaceId: true } } },
+      include: { room: { select: { id: true } } },
     })
-    if (!existing || existing.room.workspaceId !== workspaceId) {
+    if (!existing) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
+    await requireRoomMembership(existing.roomId)
     await prisma.task.delete({ where: { id } })
 
     eventBroadcaster.broadcast({

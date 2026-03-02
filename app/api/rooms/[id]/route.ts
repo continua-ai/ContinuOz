@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import {
-  getAuthenticatedWorkspaceContext,
+  requireRoomMembership,
   AuthError,
   ForbiddenError,
   unauthorizedResponse,
@@ -11,10 +11,10 @@ import { eventBroadcaster } from "@/lib/event-broadcaster"
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { id } = await params
+    await requireRoomMembership(id)
     const room = await prisma.room.findUnique({
-      where: { id, workspaceId },
+      where: { id },
       include: {
         agents: {
           include: { agent: { select: { id: true, name: true, color: true, icon: true, status: true, activeRoomId: true } } },
@@ -32,11 +32,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { id } = await params
+    const { workspaceId } = await requireRoomMembership(id)
 
-    // Verify ownership
-    const existing = await prisma.room.findUnique({ where: { id, workspaceId } })
+    const existing = await prisma.room.findUnique({ where: { id } })
     if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
     const body = await req.json()
@@ -47,6 +46,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         return NextResponse.json({ error: "agentIds must be an array" }, { status: 400 })
       }
       if (agentIds.length > 0) {
+        if (!workspaceId) {
+          return NextResponse.json({ error: "Room is not linked to a workspace" }, { status: 400 })
+        }
         const allowedAgentCount = await prisma.agent.count({
           where: { id: { in: agentIds }, workspaceId },
         })
@@ -99,9 +101,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { id } = await params
-    const existing = await prisma.room.findUnique({ where: { id, workspaceId } })
+    await requireRoomMembership(id)
+    const existing = await prisma.room.findUnique({ where: { id } })
     if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
     await prisma.room.delete({ where: { id } })
     return NextResponse.json({ ok: true })
