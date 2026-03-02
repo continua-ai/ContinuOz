@@ -4,15 +4,34 @@ import { auth } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
 export type WorkspaceRole = "OWNER" | "MEMBER"
+export type RoomRole = "OWNER" | "MEMBER"
+
 export interface WorkspaceContext {
   userId: string
   workspaceId: string
   role: WorkspaceRole
 }
 
+export interface RoomContext {
+  userId: string
+  roomId: string
+  role: RoomRole
+  workspaceId: string | null
+}
+
 export const ACTIVE_WORKSPACE_COOKIE = "active_workspace_id"
+const TEST_USER_COOKIE = "test_user_id"
 
 export async function getAuthenticatedUserId(): Promise<string> {
+  if (process.env.TEST_AUTH_MODE === "true") {
+    const cookieStore = await cookies()
+    const testUserId = cookieStore.get(TEST_USER_COOKIE)?.value
+    if (!testUserId) {
+      throw new AuthError()
+    }
+    return testUserId
+  }
+
   const session = await auth()
   if (!session?.user?.id) {
     throw new AuthError()
@@ -76,6 +95,64 @@ export async function requireWorkspaceMembership(workspaceId: string): Promise<W
     workspaceId,
     role: membership.role as WorkspaceRole,
   }
+}
+
+export async function requireRoomMembership(roomId: string): Promise<RoomContext> {
+  const userId = await getAuthenticatedUserId()
+  const room = await prisma.room.findUnique({
+    where: { id: roomId },
+    select: { id: true, workspaceId: true, userId: true },
+  })
+
+  if (!room) {
+    throw new ForbiddenError("Room not found")
+  }
+
+  const membership = await prisma.roomMember.findUnique({
+    where: { roomId_userId: { roomId, userId } },
+    select: { role: true },
+  })
+
+  if (membership) {
+    if (room.userId && room.userId === userId && membership.role !== "OWNER") {
+      await prisma.roomMember.update({
+        where: { roomId_userId: { roomId, userId } },
+        data: { role: "OWNER" },
+      })
+      return {
+        userId,
+        roomId,
+        role: "OWNER",
+        workspaceId: room.workspaceId ?? null,
+      }
+    }
+    return {
+      userId,
+      roomId,
+      role: membership.role as RoomRole,
+      workspaceId: room.workspaceId ?? null,
+    }
+  }
+
+  if (room.userId && room.userId === userId) {
+    const created = await prisma.roomMember.create({
+      data: {
+        roomId,
+        userId,
+        role: "OWNER",
+        invitedByUserId: null,
+      },
+      select: { role: true },
+    })
+    return {
+      userId,
+      roomId,
+      role: created.role as RoomRole,
+      workspaceId: room.workspaceId ?? null,
+    }
+  }
+
+  throw new ForbiddenError("Room access denied")
 }
 
 export class AuthError extends Error {

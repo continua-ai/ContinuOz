@@ -10,17 +10,57 @@ import type {
   Workspace,
   WorkspaceMember,
   WorkspaceInvite,
+  User,
+  RoomMember,
 } from "@/lib/types"
 
 // ─── Room Store ────────────────────────────────────────────
 
+const ROOM_ORDER_KEY = "room_order"
+
+function readRoomOrder(): string[] {
+  if (typeof window === "undefined") return []
+  try {
+    const raw = window.localStorage.getItem(ROOM_ORDER_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string") : []
+  } catch {
+    return []
+  }
+}
+
+function writeRoomOrder(order: string[]) {
+  if (typeof window === "undefined") return
+  window.localStorage.setItem(ROOM_ORDER_KEY, JSON.stringify(order))
+}
+
+function applyRoomOrder(rooms: Room[], order: string[]): Room[] {
+  if (order.length === 0) return rooms
+  const byId = new Map(rooms.map((room) => [room.id, room]))
+  const ordered: Room[] = []
+  for (const id of order) {
+    const room = byId.get(id)
+    if (room) ordered.push(room)
+    byId.delete(id)
+  }
+  return [...ordered, ...byId.values()]
+}
+
 interface RoomStore {
   rooms: Room[]
+  roomOrder: string[]
   activeRoomId: string | null
   setActiveRoom: (id: string | null) => void
+  setRoomOrder: (order: string[]) => void
   fetchRooms: () => Promise<void>
   refreshRoom: (roomId: string) => Promise<void>
-  createRoom: (name: string, description?: string, agentIds?: string[]) => Promise<Room>
+  createRoom: (
+    name: string,
+    description?: string,
+    agentIds?: string[],
+    memberUserIds?: string[]
+  ) => Promise<Room>
   updateRoomAgents: (roomId: string, agentIds: string[]) => Promise<Room>
   updateRoomDescription: (roomId: string, description: string) => Promise<Room>
   deleteRoom: (id: string) => Promise<void>
@@ -28,12 +68,24 @@ interface RoomStore {
 
 export const useRoomStore = create<RoomStore>((set) => ({
   rooms: [],
+  roomOrder: [],
   activeRoomId: null,
   setActiveRoom: (id) => set({ activeRoomId: id }),
+  setRoomOrder: (order) => {
+    writeRoomOrder(order)
+    set((s) => ({
+      roomOrder: order,
+      rooms: applyRoomOrder(s.rooms, order),
+    }))
+  },
   fetchRooms: async () => {
     const res = await fetch("/api/rooms")
     const rooms = await res.json()
-    set({ rooms })
+    const order = readRoomOrder()
+    const orderedRooms = applyRoomOrder(rooms, order)
+    const nextOrder = orderedRooms.map((room: Room) => room.id)
+    writeRoomOrder(nextOrder)
+    set({ rooms: orderedRooms, roomOrder: nextOrder })
   },
   refreshRoom: async (roomId) => {
     const res = await fetch(`/api/rooms/${roomId}`)
@@ -41,16 +93,24 @@ export const useRoomStore = create<RoomStore>((set) => ({
     const room = await res.json()
     set((s) => ({ rooms: s.rooms.map((r) => (r.id === roomId ? room : r)) }))
   },
-  createRoom: async (name, description = "", agentIds = []) => {
+  createRoom: async (name, description = "", agentIds = [], memberUserIds = []) => {
     const res = await fetch("/api/rooms", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, description, agentIds }),
+      body: JSON.stringify({ name, description, agentIds, memberUserIds }),
     })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Failed to create room" }))
+      throw new Error(err.error ?? `Failed to create room (${res.status})`)
+    }
     const room = await res.json()
-    set((s) => ({
-      rooms: s.rooms.some((r) => r.id === room.id) ? s.rooms : [...s.rooms, room],
-    }))
+    set((s) => {
+      const exists = s.rooms.some((r) => r.id === room.id)
+      const rooms = exists ? s.rooms : [...s.rooms, room]
+      const order = exists ? s.roomOrder : [...s.roomOrder, room.id]
+      writeRoomOrder(order)
+      return { rooms, roomOrder: order }
+    })
     return room
   },
   updateRoomAgents: async (roomId, agentIds) => {
@@ -75,10 +135,16 @@ export const useRoomStore = create<RoomStore>((set) => ({
   },
   deleteRoom: async (id) => {
     await fetch(`/api/rooms/${id}`, { method: "DELETE" })
-    set((s) => ({
-      rooms: s.rooms.filter((r) => r.id !== id),
-      activeRoomId: s.activeRoomId === id ? null : s.activeRoomId,
-    }))
+    set((s) => {
+      const rooms = s.rooms.filter((r) => r.id !== id)
+      const order = s.roomOrder.filter((roomId) => roomId !== id)
+      writeRoomOrder(order)
+      return {
+        rooms,
+        roomOrder: order,
+        activeRoomId: s.activeRoomId === id ? null : s.activeRoomId,
+      }
+    })
   },
 }))
 
@@ -194,6 +260,98 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       throw new Error(err.error ?? "Failed to remove member")
     }
     set({ members: get().members.filter((m) => m.userId !== userId) })
+  },
+}))
+
+// ─── People Store ──────────────────────────────────────────
+
+interface PeopleStore {
+  members: WorkspaceMember[]
+  nonMembers: User[]
+  fetchPeople: () => Promise<void>
+  addWorkspaceMember: (userId: string) => Promise<void>
+}
+
+export const usePeopleStore = create<PeopleStore>((set) => ({
+  members: [],
+  nonMembers: [],
+  fetchPeople: async () => {
+    const res = await fetch("/api/workspace/people")
+    if (!res.ok) return
+    const data = await res.json()
+    set({ members: data.members ?? [], nonMembers: data.nonMembers ?? [] })
+  },
+  addWorkspaceMember: async (userId) => {
+    const res = await fetch("/api/workspace/members", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Failed to add member" }))
+      throw new Error(err.error ?? "Failed to add member")
+    }
+    const member = await res.json()
+    set((s) => ({
+      members: [...s.members, member],
+      nonMembers: s.nonMembers.filter((u) => u.id !== userId),
+    }))
+  },
+}))
+
+// ─── Room Members Store ─────────────────────────────────────
+
+interface RoomMemberStore {
+  membersByRoom: Record<string, RoomMember[]>
+  fetchRoomMembers: (roomId: string) => Promise<void>
+  addRoomMember: (roomId: string, userId: string) => Promise<void>
+  removeRoomMember: (roomId: string, userId: string) => Promise<void>
+}
+
+export const useRoomMemberStore = create<RoomMemberStore>((set) => ({
+  membersByRoom: {},
+  fetchRoomMembers: async (roomId) => {
+    const res = await fetch(`/api/rooms/${roomId}/members`)
+    if (!res.ok) return
+    const members = await res.json()
+    set((s) => ({ membersByRoom: { ...s.membersByRoom, [roomId]: members } }))
+  },
+  addRoomMember: async (roomId, userId) => {
+    const res = await fetch(`/api/rooms/${roomId}/members`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Failed to add member" }))
+      throw new Error(err.error ?? "Failed to add member")
+    }
+    const member = await res.json()
+    set((s) => {
+      const existing = s.membersByRoom[roomId] || []
+      const hasMember = existing.some((m) => m.userId === member.userId)
+      return {
+        membersByRoom: {
+          ...s.membersByRoom,
+          [roomId]: hasMember ? existing : [...existing, member],
+        },
+      }
+    })
+  },
+  removeRoomMember: async (roomId, userId) => {
+    const res = await fetch(`/api/rooms/${roomId}/members/${userId}`, {
+      method: "DELETE",
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Failed to remove member" }))
+      throw new Error(err.error ?? "Failed to remove member")
+    }
+    set((s) => ({
+      membersByRoom: {
+        ...s.membersByRoom,
+        [roomId]: (s.membersByRoom[roomId] || []).filter((m) => m.userId !== userId),
+      },
+    }))
   },
 }))
 

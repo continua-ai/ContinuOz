@@ -13,6 +13,7 @@ import {
   SignOutIcon,
   CaretUpDownIcon,
   CheckIcon,
+  UsersThreeIcon,
 } from "@phosphor-icons/react"
 import { AgentIcon } from "@/components/agent-icon"
 import { OzLogo } from "@/components/oz-logo"
@@ -55,9 +56,9 @@ export function AppSidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const { data: session } = useSession()
-  const { rooms, fetchRooms } = useRoomStore()
+  const { rooms, fetchRooms, setRoomOrder } = useRoomStore()
   const { agents, fetchAgents } = useAgentStore()
-  const { unreadCount, fetchNotifications } = useNotificationStore()
+  const { unreadCount, notifications, fetchNotifications } = useNotificationStore()
   const {
     workspace,
     workspaces,
@@ -73,6 +74,8 @@ export function AppSidebar() {
   const [creatingWs, setCreatingWs] = React.useState(false)
   const [createWsError, setCreateWsError] = React.useState("")
   const [switchingWsId, setSwitchingWsId] = React.useState<string | null>(null)
+  const [dragRoomId, setDragRoomId] = React.useState<string | null>(null)
+  const [dropTargetId, setDropTargetId] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     fetchWorkspace()
@@ -119,6 +122,70 @@ export function AppSidebar() {
     } finally {
       setCreatingWs(false)
     }
+  }
+
+  const unreadRoomIds = React.useMemo(() => {
+    return new Set(notifications.filter((n) => !n.read).map((n) => n.roomId))
+  }, [notifications])
+
+  const handleRoomDragStart = (roomId: string) => (event: React.DragEvent<HTMLLIElement>) => {
+    setDragRoomId(roomId)
+    event.dataTransfer.effectAllowed = "move"
+    event.dataTransfer.setData("text/plain", roomId)
+  }
+
+  const handleRoomDragEnd = () => {
+    setDragRoomId(null)
+    setDropTargetId(null)
+  }
+
+  const handleRoomDragEnter = (roomId: string) => (event: React.DragEvent<HTMLLIElement>) => {
+    event.preventDefault()
+    if (dragRoomId && dragRoomId !== roomId) {
+      setDropTargetId(roomId)
+    }
+  }
+
+  const handleRoomDragLeave = (roomId: string) => (event: React.DragEvent<HTMLLIElement>) => {
+    event.preventDefault()
+    if (dropTargetId === roomId) {
+      setDropTargetId(null)
+    }
+  }
+
+  const reorderRooms = (targetId: string | null) => {
+    if (!dragRoomId) return
+    const ids = rooms.map((room) => room.id)
+    const fromIndex = ids.indexOf(dragRoomId)
+    if (fromIndex === -1) return
+    const nextIds = ids.filter((id) => id !== dragRoomId)
+    if (targetId) {
+      const targetIndex = nextIds.indexOf(targetId)
+      if (targetIndex === -1) return
+      nextIds.splice(targetIndex, 0, dragRoomId)
+    } else {
+      nextIds.push(dragRoomId)
+    }
+    setRoomOrder(nextIds)
+  }
+
+  const handleRoomDrop = (targetId: string) => (event: React.DragEvent<HTMLLIElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (dragRoomId && dragRoomId !== targetId) {
+      reorderRooms(targetId)
+    }
+    setDragRoomId(null)
+    setDropTargetId(null)
+  }
+
+  const handleRoomDropOnList = (event: React.DragEvent<HTMLUListElement>) => {
+    event.preventDefault()
+    if (dragRoomId) {
+      reorderRooms(null)
+      setDragRoomId(null)
+    }
+    setDropTargetId(null)
   }
 
   return (
@@ -185,13 +252,21 @@ export function AppSidebar() {
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild isActive={pathname === "/inbox"}>
                     <Link href="/inbox">
-                    <TrayIcon />
+                      <TrayIcon />
                       <span>Inbox</span>
                     </Link>
                   </SidebarMenuButton>
                   {unreadCount > 0 && (
                     <SidebarMenuBadge>{unreadCount}</SidebarMenuBadge>
                   )}
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={pathname === "/people"}>
+                    <Link href="/people">
+                      <UsersThreeIcon />
+                      <span>People</span>
+                    </Link>
+                  </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>
             </SidebarGroupContent>
@@ -205,20 +280,42 @@ export function AppSidebar() {
               <span className="sr-only">Create Room</span>
             </SidebarGroupAction>
             <SidebarGroupContent>
-              <SidebarMenu>
-                {rooms.map((room) => (
-                  <SidebarMenuItem key={room.id}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={pathname === `/room/${room.id}`}
+              <SidebarMenu onDragOver={(event) => event.preventDefault()} onDrop={handleRoomDropOnList}>
+                {rooms.map((room) => {
+                  const roleTag = room.memberRole === "OWNER" ? "[owner]" : "[member]"
+                  const isUnread = unreadRoomIds.has(room.id)
+                  return (
+                    <SidebarMenuItem
+                      key={room.id}
+                      draggable
+                      onDragStart={handleRoomDragStart(room.id)}
+                      onDragEnd={handleRoomDragEnd}
+                      onDragEnter={handleRoomDragEnter(room.id)}
+                      onDragLeave={handleRoomDragLeave(room.id)}
+                      onDrop={handleRoomDrop(room.id)}
+                      onDragOver={(event) => event.preventDefault()}
+                      className={
+                        dropTargetId === room.id
+                          ? "border-t-2 border-primary"
+                          : dragRoomId === room.id
+                            ? "opacity-60"
+                            : undefined
+                      }
                     >
-                      <Link href={`/room/${room.id}`}>
-                        <HashIcon />
-                        <span>{room.name}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
+                      <SidebarMenuButton
+                        asChild
+                        isActive={pathname === `/room/${room.id}`}
+                      >
+                        <Link href={`/room/${room.id}`}>
+                          <HashIcon />
+                          <span className={isUnread ? "font-semibold" : undefined}>
+                            {roleTag} {room.name}
+                          </span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )
+                })}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import {
-  getAuthenticatedWorkspaceContext,
+  requireRoomMembership,
   AuthError,
   ForbiddenError,
   unauthorizedResponse,
@@ -11,9 +11,9 @@ import { eventBroadcaster } from "@/lib/event-broadcaster"
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const { workspaceId } = await getAuthenticatedWorkspaceContext()
     const { id } = await params
-    const existing = await prisma.room.findUnique({ where: { id, workspaceId } })
+    await requireRoomMembership(id)
+    const existing = await prisma.room.findUnique({ where: { id } })
     if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
     const body = await req.json()

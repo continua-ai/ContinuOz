@@ -52,6 +52,11 @@ enum WorkspaceRole {
   MEMBER
 }
 
+enum RoomRole {
+  OWNER
+  MEMBER
+}
+
 datasource db {
   provider = "postgresql"
 }
@@ -67,8 +72,11 @@ model User {
   agents        Agent[]
   messages      Message[]
   artifacts     Artifact[]
-  notifications Notification[]
+  notifications Notification[] @relation("NotificationRecipient")
+  sentNotifications Notification[] @relation("NotificationSender")
   tasks         Task[]
+  roomMemberships RoomMember[] @relation("RoomMemberUser")
+  invitedRoomMembers RoomMember[] @relation("RoomMemberInviter")
   workspaceMemberships WorkspaceMember[] @relation("WorkspaceMemberUser")
   invitedWorkspaceMembers WorkspaceMember[] @relation("WorkspaceMemberInviter")
   createdInvites       WorkspaceInvite[] @relation("WorkspaceInviteCreator")
@@ -89,6 +97,7 @@ model Room {
 
   user          User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
   agents        RoomAgent[]
+  members       RoomMember[]
   messages      Message[]
   artifacts     Artifact[]
   notifications Notification[]
@@ -142,6 +151,23 @@ model RoomAgent {
   @@unique([roomId, agentId])
 }
 
+model RoomMember {
+  id             String   @id @default(cuid())
+  roomId         String
+  userId         String
+  role           RoomRole @default(MEMBER)
+  invitedByUserId String?
+  createdAt      DateTime @default(now())
+
+  room      Room  @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User  @relation("RoomMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy User? @relation("RoomMemberInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([roomId, userId])
+  @@index([userId])
+  @@index([roomId])
+}
+
 model Message {
   id         String   @id @default(cuid())
   roomId     String
@@ -174,17 +200,19 @@ model Artifact {
 }
 
 model Notification {
-  id        String   @id @default(cuid())
-  roomId    String
-  agentId   String
-  message   String
-  read      Boolean  @default(false)
-  userId    String?
-  timestamp DateTime @default(now())
+  id           String   @id @default(cuid())
+  roomId       String
+  agentId      String?
+  senderUserId String?
+  message      String
+  read         Boolean  @default(false)
+  userId       String?
+  timestamp    DateTime @default(now())
 
-  room  Room  @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  user  User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room       Room  @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  agent      Agent? @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  user       User? @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  senderUser User? @relation("NotificationSender", fields: [senderUserId], references: [id], onDelete: SetNull)
 }
 
 model Task {
