@@ -116,6 +116,9 @@ if [ "$SKIP_APPLY" -eq 0 ]; then
     --from-literal=AGENT_CALLBACK_URL="$AGENT_CALLBACK_URL" \
     --from-literal=AGENT_API_KEY="$AGENT_API_KEY" \
     --from-literal=AUTH_URL="$AUTH_URL" \
+    --from-literal=INTENT_CLASSIFIER_URL="${INTENT_CLASSIFIER_URL:-}" \
+    --from-literal=INTENT_CLASSIFIER_AUDIENCE="${INTENT_CLASSIFIER_AUDIENCE:-}" \
+    --from-literal=INTENT_CLASSIFIER_THRESHOLD="${INTENT_CLASSIFIER_THRESHOLD:-}" \
     --dry-run=client -o yaml \
     -n "$NAMESPACE" | kubectl apply -f -; then
     echo "Failed to update secret."

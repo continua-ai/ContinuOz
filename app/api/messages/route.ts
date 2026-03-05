@@ -10,6 +10,7 @@ import {
 import { eventBroadcaster } from "@/lib/event-broadcaster"
 import { invokeAgent } from "@/lib/invoke-agent"
 import { extractMentionedNames } from "@/lib/mentions"
+import { classifyIntent } from "@/lib/intent-classifier"
 
 // Allow enough time for agent invocations triggered by @mentions
 export const maxDuration = 300
@@ -114,8 +115,11 @@ export async function POST(request: Request) {
       data: responseMessage,
     })
 
+    const isHumanMessage = authorType === "human" && typeof content === "string"
+    let hasAgentMention = false
+
     // If this is a human message, check for @mentions and dispatch mentioned agents
-    if (authorType === "human" && typeof content === "string" && content.includes("@") && !room.paused) {
+    if (isHumanMessage && content.includes("@") && !room.paused) {
       // Get room agents only if there is a possibility of mentions.
       const roomAgents = await prisma.roomAgent.findMany({
         where: { roomId },
@@ -129,6 +133,7 @@ export async function POST(request: Request) {
       if (mentionedNames.length > 0) {
         const mentionedSet = new Set(mentionedNames.map((n) => n.toLowerCase()))
         const mentionedAgents = agents.filter((agent) => mentionedSet.has(agent.name.toLowerCase()))
+        hasAgentMention = mentionedAgents.length > 0
 
         const ozAgents = mentionedAgents.filter((a) => a.harness === "oz")
 
@@ -201,6 +206,80 @@ export async function POST(request: Request) {
             eventBroadcaster.broadcast({ type: "notification", roomId, data: { action: "created" } })
           }
         }
+      }
+    }
+
+    if (isHumanMessage && !room.paused && !hasAgentMention) {
+      const memberCount = await prisma.roomMember.count({ where: { roomId } })
+      if (memberCount > 1) {
+        after(async () => {
+          try {
+            const agents = await prisma.roomAgent.findMany({
+              where: { roomId },
+              include: { agent: true },
+            })
+            const ozAgents = agents.map((ra) => ra.agent).filter((agent) => agent.harness === "oz")
+            const leadAgents = ozAgents.filter((agent) => agent.name.toLowerCase() === "team-lead")
+            if (leadAgents.length !== 1) {
+              console.log(
+                "[intent-classifier] Skipping: expected exactly one team-lead agent",
+                leadAgents.length
+              )
+              return
+            }
+
+            const recentMessages = await prisma.message.findMany({
+              where: { roomId },
+              orderBy: { timestamp: "desc" },
+              take: 8,
+            })
+
+            const chatHistory = recentMessages
+              .reverse()
+              .map((msg) => ({
+                role: msg.authorType === "human" ? "user" : "assistant",
+                text: msg.content,
+              }))
+              .filter((msg) => msg.text)
+
+            if (chatHistory.length === 0) return
+
+            const result = await classifyIntent(chatHistory)
+            if (!result?.shouldInvoke) {
+              console.log(
+                "[intent-classifier] No invoke",
+                result?.reasoning ?? "",
+                result?.requestId ?? ""
+              )
+              return
+            }
+
+            const agent = leadAgents[0]
+            await prisma.agent.update({
+              where: { id: agent.id },
+              data: { status: "running", activeRoomId: roomId },
+            })
+            eventBroadcaster.broadcast({ type: "room", roomId, data: null })
+
+            console.log(
+              "[intent-classifier] Invoking lead agent",
+              agent.id,
+              result?.reasoning ?? "",
+              result?.requestId ?? ""
+            )
+
+            await invokeAgent({
+              roomId,
+              agentId: agent.id,
+              prompt: content,
+              depth: 0,
+              userId,
+              workspaceId: workspaceId ?? undefined,
+            })
+          } catch (error) {
+            console.error("[intent-classifier] Failed", error)
+          }
+        })
       }
     }
 
