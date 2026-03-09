@@ -10,9 +10,17 @@ import {
 import { eventBroadcaster } from "@/lib/event-broadcaster"
 import { invokeAgent } from "@/lib/invoke-agent"
 import { extractMentionedNames } from "@/lib/mentions"
+import { classifyAgentsByIntent } from "@/lib/intent-classifier"
 
-// Allow enough time for agent invocations triggered by @mentions
+// Allow enough time for agent invocations triggered by mentions / classifier
 export const maxDuration = 300
+
+type AgentRoutingMode = "ic_only" | "hybrid"
+
+function getAgentRoutingMode(): AgentRoutingMode {
+  const raw = (process.env.AGENT_ROUTING_MODE || "ic_only").toLowerCase()
+  return raw === "hybrid" ? "hybrid" : "ic_only"
+}
 
 export async function GET(request: Request) {
   try {
@@ -71,7 +79,6 @@ export async function GET(request: Request) {
   }
 }
 
-
 export async function POST(request: Request) {
   try {
     const body = await request.json()
@@ -92,7 +99,7 @@ export async function POST(request: Request) {
         sessionUrl: sessionUrl ?? null,
         userId,
         roomId,
-        authorId: (authorType !== "human" && authorId) ? authorId : null,
+        authorId: authorType !== "human" && authorId ? authorId : null,
       },
       include: {
         agent: { select: { id: true, name: true, color: true, icon: true, status: true, activeRoomId: true } },
@@ -114,52 +121,75 @@ export async function POST(request: Request) {
       data: responseMessage,
     })
 
-    // If this is a human message, check for @mentions and dispatch mentioned agents
-    if (authorType === "human" && typeof content === "string" && content.includes("@") && !room.paused) {
-      // Get room agents only if there is a possibility of mentions.
+    // Agent routing modes:
+    // - ic_only (default): ignore direct @mentions for agent dispatch, rely only on IC.
+    // - hybrid: direct @mentions dispatch first, IC only evaluates unmentioned agents.
+    if (authorType === "human" && typeof content === "string" && !room.paused) {
+      const routingMode = getAgentRoutingMode()
+
       const roomAgents = await prisma.roomAgent.findMany({
         where: { roomId },
         include: { agent: true },
       })
 
       const agents = roomAgents.map((ra) => ra.agent)
-      const mentionedNames = extractMentionedNames(content, agents.map((a) => a.name))
-      console.log("[messages] Extracted mentions:", mentionedNames)
+      const allOzAgents = agents.filter((agent) => agent.harness === "oz")
 
-      if (mentionedNames.length > 0) {
-        const mentionedSet = new Set(mentionedNames.map((n) => n.toLowerCase()))
-        const mentionedAgents = agents.filter((agent) => mentionedSet.has(agent.name.toLowerCase()))
+      const mentionedNames =
+        routingMode === "hybrid" ? extractMentionedNames(content, agents.map((a) => a.name)) : []
+      const mentionedSet = new Set(mentionedNames.map((n) => n.toLowerCase()))
 
-        const ozAgents = mentionedAgents.filter((a) => a.harness === "oz")
+      const mentionedOzAgents =
+        routingMode === "hybrid"
+          ? allOzAgents.filter((agent) => mentionedSet.has(agent.name.toLowerCase()))
+          : []
 
-        // Set agents to "running" NOW so the client sees the thinking state
-        // immediately after the POST response (before after() fires).
-        for (const agent of ozAgents) {
-          await prisma.agent.update({
-            where: { id: agent.id },
-            data: { status: "running", activeRoomId: roomId },
-          })
-        }
+      const classifierCandidates =
+        routingMode === "hybrid"
+          ? allOzAgents.filter((agent) => !mentionedSet.has(agent.name.toLowerCase()))
+          : allOzAgents
 
-        // Broadcast the room update so SSE subscribers also see it
-        if (ozAgents.length > 0) {
-          eventBroadcaster.broadcast({ type: "room", roomId, data: null })
-        }
-        // Dispatch the actual agent work in after() so the response returns fast.
-        // Use a single after() task so multiple mentioned agents can be invoked reliably.
+      const classifierSelectedIds = await classifyAgentsByIntent({
+        roomId,
+        message: content,
+        agents: classifierCandidates.map((a) => ({
+          id: a.id,
+          name: a.name,
+          systemPrompt: a.systemPrompt,
+        })),
+      })
+      const classifierSelectedSet = new Set(classifierSelectedIds)
+
+      const classifierOzAgents = classifierCandidates.filter((a) => classifierSelectedSet.has(a.id))
+
+      // In hybrid mode, direct mentions win precedence and IC only contributes unmentioned agents.
+      // In ic_only mode, mentionedOzAgents is always empty.
+      const targetAgentMap = new Map<string, (typeof agents)[number]>()
+      for (const agent of mentionedOzAgents) targetAgentMap.set(agent.id, agent)
+      for (const agent of classifierOzAgents) targetAgentMap.set(agent.id, agent)
+      const targetAgents = Array.from(targetAgentMap.values())
+
+      if (targetAgents.length > 0) {
+        await prisma.agent.updateMany({
+          where: { id: { in: targetAgents.map((a) => a.id) } },
+          data: { status: "running", activeRoomId: roomId },
+        })
+
+        eventBroadcaster.broadcast({ type: "room", roomId, data: null })
+
         after(async () => {
           await Promise.allSettled(
-            ozAgents.map((mentionedAgent) => {
-              console.log(`[messages] Scheduling agent dispatch: ${mentionedAgent.name}`)
+            targetAgents.map((targetAgent) => {
+              console.log(`[messages] Scheduling agent dispatch: ${targetAgent.name}`)
               return invokeAgent({
                 roomId,
-                agentId: mentionedAgent.id,
+                agentId: targetAgent.id,
                 prompt: content,
                 depth: 0,
                 userId,
                 workspaceId: workspaceId ?? undefined,
               }).catch((err) => {
-                console.error(`[messages] Failed to invoke agent ${mentionedAgent.name}:`, err)
+                console.error(`[messages] Failed to invoke agent ${targetAgent.name}:`, err)
               })
             })
           )
@@ -181,9 +211,7 @@ export async function POST(request: Request) {
         )
 
         if (mentionedUserNames.length > 0) {
-          const mentionedUserMap = new Map(
-            otherUsers.map((u) => [u.name.toLowerCase(), u])
-          )
+          const mentionedUserMap = new Map(otherUsers.map((u) => [u.name.toLowerCase(), u]))
           const mentionedUsers = mentionedUserNames
             .map((name) => mentionedUserMap.get(name.toLowerCase()))
             .filter((u): u is { id: string; name: string } => !!u)

@@ -2,20 +2,13 @@ import { NextResponse, after } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { eventBroadcaster } from "@/lib/event-broadcaster"
 import { tryDecodeAgentCallbackPayload } from "@/lib/agent-callback"
-import { extractMentionedNames } from "@/lib/mentions"
 import { invokeAgent } from "@/lib/invoke-agent"
 import { getTaskStatus } from "@/lib/oz-client"
 import { saveWarpArtifacts } from "@/lib/warp-artifacts"
-const DEFAULT_ORCHESTRATION_TIMEOUT_MS = 15 * 60_000
+import { classifyAgentsByIntent } from "@/lib/intent-classifier"
 
 // This route can fan out follow-up invocations and persist artifacts after the response is sent.
 export const maxDuration = 300
-function getOrchestrationTimeoutMs() {
-  const raw = process.env.ORCHESTRATION_TIMEOUT_MS
-  if (!raw) return DEFAULT_ORCHESTRATION_TIMEOUT_MS
-  const parsed = Number(raw)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_ORCHESTRATION_TIMEOUT_MS
-}
 function generateInvocationId() {
   return `inv_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
 }
@@ -235,135 +228,87 @@ export async function POST(request: Request) {
       } catch (err) {
         console.error("[agent-response] Failed to process orchestration fan-in:", err)
       }
-      // If the agent response itself contains @mentions, dispatch those teammates from here.
-      // This is more reliable than relying on the long-running invokeAgent function to survive until
-      // it can process agent-to-agent mentions.
+      // Agent-to-agent @mention dispatch is intentionally disabled.
+      // Instead, every agent message triggers IC-based routing across room agents.
       // Skip dispatch if the room is paused (responses are still accepted, but no new agents are invoked).
       const roomForPause = await prisma.room.findUnique({ where: { id: roomId }, select: { paused: true } })
       if (roomForPause?.paused) {
-        console.log("[agent-response] Room is paused, skipping mention dispatch")
-      } else try {
-        const roomAgents = await prisma.roomAgent.findMany({
-          where: { roomId },
-          include: { agent: true },
-        })
-        const teammates = roomAgents
-          .map((ra) => ra.agent)
-          .filter((a) => a.id !== agentId && a.harness === "oz")
+        console.log("[agent-response] Room is paused, skipping IC dispatch")
+      } else {
+        try {
+          const roomAgents = await prisma.roomAgent.findMany({
+            where: { roomId },
+            include: { agent: true },
+          })
 
-        const mentionedNames = extractMentionedNames(messageText, teammates.map((t) => t.name))
-        if (mentionedNames.length > 0) {
-          console.log("[agent-response] Extracted mentions:", mentionedNames)
-          const mentionedSet = new Set(mentionedNames.map((n) => n.toLowerCase()))
-          let mentionedAgents = teammates.filter((t) => mentionedSet.has(t.name.toLowerCase()))
+          const icCandidates = roomAgents
+            .map((ra) => ra.agent)
+            .filter((a) => a.harness === "oz" && a.id !== agentId)
+
+          const selectedIds = await classifyAgentsByIntent({
+            roomId,
+            message: messageText,
+            agents: icCandidates.map((a) => ({
+              id: a.id,
+              name: a.name,
+              systemPrompt: a.systemPrompt,
+            })),
+          })
+
+          const selectedSet = new Set(selectedIds)
+          let selectedAgents = icCandidates.filter((a) => selectedSet.has(a.id))
 
           // Suppress premature delegate→lead dispatch while an orchestration is running.
           if (activeChildOrchestration?.status === "running") {
-            mentionedAgents = mentionedAgents.filter((t) => t.id !== activeChildOrchestration!.leadAgentId)
+            selectedAgents = selectedAgents.filter((a) => a.id !== activeChildOrchestration!.leadAgentId)
           }
-          if (mentionedAgents.length === 0) {
-            // Mentions exist, but all were suppressed (e.g. delegate mentioning the lead).
-          } else {
-            const shouldOrchestrate = mentionedAgents.length >= 2
-            const orchestration = shouldOrchestrate
-              ? await prisma.agentOrchestration.upsert({
-                  where: { leadRunId: taskId },
-                  create: {
-                    roomId,
-                    leadAgentId: agentId,
-                    leadRunId: taskId,
-                    status: "running",
-                    deadlineAt: new Date(Date.now() + getOrchestrationTimeoutMs()),
-                  },
-                  update: {},
-                })
-              : null
 
-            const dispatchable: Array<{ agent: (typeof mentionedAgents)[number]; invocationId: string }> = []
-            for (const mentionedAgent of mentionedAgents) {
-              const markerId = `dispatch:${taskId}:${mentionedAgent.id}`
-              const marker = await prisma.agentCallback.findUnique({
-                where: { id: markerId },
-                select: { response: true },
-              })
-              if (marker) {
-                // Best-effort: if we have a stored invocationId, ensure an orchestration child row exists.
-                if (orchestration && marker.response?.startsWith("inv_")) {
-                  await prisma.agentOrchestrationChild
-                    .upsert({
-                      where: { runId: marker.response },
-                      create: {
-                        orchestrationId: orchestration.id,
-                        agentId: mentionedAgent.id,
-                        runId: marker.response,
-                        status: "dispatched",
-                      },
-                      update: {},
-                    })
-                    .catch(() => {
-                      // ignore: this is a best-effort repair for retries
-                    })
-                }
-                continue
-              }
+          const dispatchable: Array<{ agent: (typeof selectedAgents)[number]; invocationId: string }> = []
+          for (const selectedAgent of selectedAgents) {
+            const markerId = `ic-dispatch:${taskId}:${selectedAgent.id}`
+            const marker = await prisma.agentCallback.findUnique({
+              where: { id: markerId },
+              select: { response: true },
+            })
+            if (marker) continue
 
-              const childRunId = generateInvocationId()
-
-              try {
-                // Marker response stores the invocationId we will use for the child so retries can recover it.
-                await prisma.agentCallback.create({ data: { id: markerId, response: childRunId } })
-              } catch {
-                // Best-effort de-dupe for races; if it already exists, don't dispatch again.
-                continue
-              }
-
-              if (orchestration) {
-                await prisma.agentOrchestrationChild
-                  .create({
-                    data: {
-                      orchestrationId: orchestration.id,
-                      agentId: mentionedAgent.id,
-                      runId: childRunId,
-                      status: "dispatched",
-                    },
-                  })
-                  .catch(() => {
-                    // ignore: marker de-dupe succeeded, but child row already exists (retry/race)
-                  })
-              }
-
-              dispatchable.push({ agent: mentionedAgent, invocationId: childRunId })
+            const childRunId = generateInvocationId()
+            try {
+              await prisma.agentCallback.create({ data: { id: markerId, response: childRunId } })
+            } catch {
+              continue
             }
 
-            // Optimistically mark them running so the UI shows thinking immediately.
-            if (dispatchable.length > 0) {
-              await prisma.agent.updateMany({
-                where: { id: { in: dispatchable.map((d) => d.agent.id) } },
-                data: { status: "running", activeRoomId: roomId },
-              })
-              eventBroadcaster.broadcast({ type: "room", roomId, data: null })
-            }
-
-            for (const { agent: mentionedAgent, invocationId } of dispatchable) {
-              console.log(`[agent-response] Scheduling mentioned agent: ${mentionedAgent.name} (${invocationId})`)
-              after(
-                invokeAgent({
-                  roomId,
-                  agentId: mentionedAgent.id,
-                  prompt: messageText,
-                  depth: 1,
-                  userId: userIdForInvocations,
-                  workspaceId: workspaceIdForInvocations,
-                  invocationId,
-                }).catch((err) => {
-                  console.error(`[agent-response] Failed to invoke mentioned agent ${mentionedAgent.name}:`, err)
-                })
-              )
-            }
+            dispatchable.push({ agent: selectedAgent, invocationId: childRunId })
           }
+
+          if (dispatchable.length > 0) {
+            await prisma.agent.updateMany({
+              where: { id: { in: dispatchable.map((d) => d.agent.id) } },
+              data: { status: "running", activeRoomId: roomId },
+            })
+            eventBroadcaster.broadcast({ type: "room", roomId, data: null })
+          }
+
+          for (const { agent: selectedAgent, invocationId } of dispatchable) {
+            console.log(`[agent-response] Scheduling IC-selected agent: ${selectedAgent.name} (${invocationId})`)
+            after(
+              invokeAgent({
+                roomId,
+                agentId: selectedAgent.id,
+                prompt: messageText,
+                depth: 1,
+                userId: userIdForInvocations,
+                workspaceId: workspaceIdForInvocations,
+                invocationId,
+              }).catch((err) => {
+                console.error(`[agent-response] Failed to invoke IC-selected agent ${selectedAgent.name}:`, err)
+              })
+            )
+          }
+        } catch (err) {
+          console.error("[agent-response] Failed to dispatch IC-selected agents:", err)
         }
-      } catch (err) {
-        console.error("[agent-response] Failed to dispatch mentioned agents:", err)
       }
     } else {
       // Store in database (upsert in case of retry) so invokeAgent can poll and create the message.

@@ -11,12 +11,14 @@ function normalizeArtifactType(type: string) {
   return ARTIFACT_TYPE_MAP[type] ?? type.toLowerCase()
 }
 
-function getArtifactTitle(a: ArtifactItem) {
+function getArtifactTitle(a: ArtifactItem): string {
   switch (a.artifact_type) {
     case "PLAN":
       return a.data.title ?? a.artifact_type
     case "PULL_REQUEST":
       return a.data.branch ?? a.artifact_type
+    default:
+      return a.artifact_type
   }
 }
 

@@ -368,8 +368,14 @@ To mention an agent, include @agent-name in your response message.
       data: { ...message, author: message.agent, agent: undefined },
     })
 
-    // Check for @mentions and recursively dispatch mentioned agents
-    const mentionedNames = extractMentionedNames(message.content, teammates.map((t) => t.name))
+    // Check for @mentions and recursively dispatch mentioned agents.
+    // In ic_only mode, suppress agent-to-agent mention dispatch to avoid fan-out loops.
+    const agentMentionDispatchEnabled =
+      (process.env.AGENT_ROUTING_MODE || "ic_only").toLowerCase() === "hybrid"
+
+    const mentionedNames = agentMentionDispatchEnabled
+      ? extractMentionedNames(message.content, teammates.map((t) => t.name))
+      : []
 
     if (mentionedNames.length > 0) {
       console.log("[invokeAgent] Agent mentioned:", mentionedNames)
