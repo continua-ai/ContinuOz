@@ -32,6 +32,7 @@ export function CreateAgentDialog({
   const [name, setName] = React.useState("")
   const [environmentId, setEnvironmentId] = React.useState("")
   const [systemPrompt, setSystemPrompt] = React.useState("")
+  const [intentRoleDescription, setIntentRoleDescription] = React.useState("")
   const [color, setColor] = React.useState(AGENT_COLORS[0])
   const [icon, setIcon] = React.useState("robot")
   const [loading, setLoading] = React.useState(false)
@@ -47,6 +48,7 @@ export function CreateAgentDialog({
         environmentId: environmentId.trim(),
         harness: "oz",
         systemPrompt: systemPrompt.trim(),
+        intentRoleDescription: intentRoleDescription.trim(),
         color,
         icon,
       })
@@ -54,6 +56,7 @@ export function CreateAgentDialog({
       setName("")
       setEnvironmentId("")
       setSystemPrompt("")
+      setIntentRoleDescription("")
       setColor(AGENT_COLORS[0])
       setIcon("robot")
     } finally {
@@ -142,6 +145,16 @@ export function CreateAgentDialog({
                 value={environmentId}
                 onChange={(e) => setEnvironmentId(e.target.value)}
                 placeholder="e.g. your-environment-id"
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="agent-intent-role">Intent Role Description</FieldLabel>
+              <Textarea
+                id="agent-intent-role"
+                value={intentRoleDescription}
+                onChange={(e) => setIntentRoleDescription(e.target.value)}
+                placeholder="Owns backend APIs and database schema changes."
+                rows={2}
               />
             </Field>
             <Field>

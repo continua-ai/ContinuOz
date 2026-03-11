@@ -116,6 +116,7 @@ model Agent {
   harness       String   @default("claude-code")
   environmentId String   @default("")
   systemPrompt  String   @default("")
+  intentRoleDescription String @default("")
   skills        String   @default("[]")
   mcpServers    String   @default("[]")
   scripts       String   @default("[]")

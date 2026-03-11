@@ -4,6 +4,7 @@ interface IntentClassifierAgent {
   id: string
   name: string
   systemPrompt?: string | null
+  intentRoleDescription?: string | null
 }
 
 interface ClassifyAgentsByIntentParams {
@@ -18,6 +19,11 @@ type ICChatMessage = {
   role: ICChatRole
   text: string
   n_images: number
+}
+
+type ICParticipant = {
+  id: string
+  role_description?: string
 }
 
 const METADATA_IDENTITY_URL =
@@ -101,9 +107,36 @@ function normalizeSelectedAgentIds(
   return []
 }
 
-function getV1Endpoint(base: string) {
-  if (base.endsWith("/v1/classify-intent")) return base
-  return `${base.replace(/\/$/, "")}/v1/classify-intent`
+type IntentClassifierMode = "legacy" | "multi_agent_lora08" | "multi_agent_lora16"
+
+function getClassifierMode(): IntentClassifierMode {
+  const raw = (process.env.INTENT_CLASSIFIER_MODE || "legacy").trim().toLowerCase()
+  if (raw === "multi_agent_lora08") return "multi_agent_lora08"
+  if (raw === "multi_agent_lora16") return "multi_agent_lora16"
+  return "legacy"
+}
+
+function getClassifierPath(mode: IntentClassifierMode) {
+  if (mode === "multi_agent_lora08") return "/v1/classify-intent-multi-agent-lora08"
+  if (mode === "multi_agent_lora16") return "/v1/classify-intent-multi-agent-lora16"
+  return "/v1/classify-intent"
+}
+
+function getV1Endpoint(base: string, mode: IntentClassifierMode) {
+  const trimmed = base.replace(/\/$/, "")
+  const knownPaths = [
+    "/v1/classify-intent",
+    "/v1/classify-intent-multi-agent-lora08",
+    "/v1/classify-intent-multi-agent-lora16",
+  ]
+
+  const matchedPath = knownPaths.find((path) => trimmed.endsWith(path))
+  if (matchedPath) {
+    const root = trimmed.slice(0, -matchedPath.length)
+    return `${root}${getClassifierPath(mode)}`
+  }
+
+  return `${trimmed}${getClassifierPath(mode)}`
 }
 
 function unique(values: string[]) {
@@ -114,6 +147,12 @@ function shortRoleDescription(systemPrompt?: string | null) {
   if (!systemPrompt) return ""
   const firstSentence = systemPrompt.split(/(?<=[.!?])\s+/)[0]?.trim() || ""
   return firstSentence.slice(0, 220)
+}
+
+function getAgentRoleDescription(agent: IntentClassifierAgent) {
+  const explicit = agent.intentRoleDescription?.trim() || ""
+  if (explicit) return explicit.slice(0, 220)
+  return shortRoleDescription(agent.systemPrompt)
 }
 
 async function getRecentRoomMessages(roomId: string) {
@@ -134,12 +173,13 @@ function buildChatHistoryForAgent(params: {
   candidate: IntentClassifierAgent
   roomMessages: Awaited<ReturnType<typeof getRecentRoomMessages>>
   allBotNames: string[]
-  allHumanNames: string[]
+  allHumanAliases: string[]
+  userAliasById: Map<string, string>
 }): ICChatMessage[] {
-  const { candidate, roomMessages, allBotNames, allHumanNames } = params
+  const { candidate, roomMessages, allBotNames, allHumanAliases, userAliasById } = params
 
-  const participantNames = [...allHumanNames, ...allBotNames]
-  const roleDescription = shortRoleDescription(candidate.systemPrompt)
+  const participantNames = [...allHumanAliases, ...allBotNames]
+  const roleDescription = getAgentRoleDescription(candidate)
 
   const systemLine = `System Message: There are ${participantNames.length} users in the conversation: ${participantNames.join(
     ", "
@@ -156,10 +196,10 @@ function buildChatHistoryForAgent(params: {
         n_images: 0,
       })
     } else {
-      const userName = m.user?.name || "user"
+      const userAlias = (m.user?.id && userAliasById.get(m.user.id)) || "user_1"
       history.push({
         role: "user",
-        text: `${userName}: ${m.content}`,
+        text: `${userAlias}: ${m.content}`,
         n_images: 0,
       })
     }
@@ -168,30 +208,56 @@ function buildChatHistoryForAgent(params: {
   return history
 }
 
+function buildUserAliasMap(roomMessages: Awaited<ReturnType<typeof getRecentRoomMessages>>) {
+  const userAliasById = new Map<string, string>()
+  let counter = 0
+
+  for (const m of roomMessages) {
+    if (m.authorType === "agent") continue
+    const userId = m.user?.id
+    if (!userId) continue
+    if (!userAliasById.has(userId)) {
+      counter += 1
+      userAliasById.set(userId, `user_${counter}`)
+    }
+  }
+
+  const aliases = Array.from(userAliasById.values())
+  if (aliases.length === 0) aliases.push("user_1")
+  return { userAliasById, aliases }
+}
+
 async function callV1ShouldRespond(params: {
+  mode: IntentClassifierMode
   endpoint: string
   headers: Record<string, string>
   chatHistory: ICChatMessage[]
-  botName: string
   timeoutMs: number
+  botName?: string
+  currentAgentId?: string
+  currentAgentRoleDescription?: string
+  participants?: ICParticipant[]
   modelNameOverride?: string
 }): Promise<boolean> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), params.timeoutMs)
   try {
-    const body: {
-      chat_history: ICChatMessage[]
-      bot_name: string
-      include_debug: boolean
-      model_name_override?: string
-    } = {
+    const body: Record<string, unknown> = {
       chat_history: params.chatHistory,
-      bot_name: params.botName,
       include_debug: false,
     }
 
-    if (params.modelNameOverride) {
-      body.model_name_override = params.modelNameOverride
+    if (params.mode === "legacy") {
+      body.bot_name = params.botName || "warp"
+      if (params.modelNameOverride) {
+        body.model_name_override = params.modelNameOverride
+      }
+    } else {
+      body.current_agent_id = params.currentAgentId || ""
+      body.current_agent_role_description = params.currentAgentRoleDescription || ""
+      if (params.participants && params.participants.length > 0) {
+        body.participants = params.participants
+      }
     }
 
     const res = await fetch(params.endpoint, {
@@ -229,6 +295,7 @@ export async function classifyAgentsByIntent({
   const minConfidence = Number(process.env.INTENT_CLASSIFIER_MIN_CONFIDENCE || 0.5)
   const modelNameOverride = process.env.INTENT_CLASSIFIER_MODEL_NAME_OVERRIDE?.trim() || undefined
   const classifierBotName = getClassifierBotName()
+  const classifierMode = getClassifierMode()
 
   try {
     const token = audience ? await getIdentityToken(audience) : null
@@ -261,11 +328,7 @@ export async function classifyAgentsByIntent({
 
     const roomMessages = await getRecentRoomMessages(roomId)
 
-    const allHumanNames = unique(
-      roomMessages
-        .filter((m) => m.authorType !== "agent")
-        .map((m) => m.user?.name || "user")
-    )
+    const { userAliasById, aliases: allHumanAliases } = buildUserAliasMap(roomMessages)
 
     const allBotNames = unique([
       ...agents.map((a) => a.name),
@@ -275,13 +338,26 @@ export async function classifyAgentsByIntent({
     ])
 
     const debug = isClassifierDebugEnabled()
-    const v1Endpoint = getV1Endpoint(endpoint)
+    const v1Endpoint = getV1Endpoint(endpoint, classifierMode)
+    const roleDescriptionByAgentName = new Map(
+      agents.map((a) => [a.name, getAgentRoleDescription(a)] as const)
+    )
+    const agentParticipants: ICParticipant[] = allBotNames.map((name) => {
+      const roleDescription = roleDescriptionByAgentName.get(name) || ""
+      return {
+        id: name,
+        ...(roleDescription ? { role_description: roleDescription } : {}),
+      }
+    })
+    const userParticipants: ICParticipant[] = allHumanAliases.map((alias) => ({ id: alias }))
+    const participants: ICParticipant[] = [...agentParticipants, ...userParticipants]
 
     if (debug) {
       console.log("[intent-classifier] debug enabled", {
         roomId,
         candidateCount: agents.length,
         classifierBotName,
+        classifierMode,
         endpoint: v1Endpoint,
       })
     }
@@ -293,30 +369,47 @@ export async function classifyAgentsByIntent({
             candidate: agent,
             roomMessages,
             allBotNames,
-            allHumanNames,
+            allHumanAliases,
+            userAliasById,
           })
+
+          const currentAgentRoleDescription = getAgentRoleDescription(agent)
+          const requestBodyForLog: Record<string, unknown> = {
+            chat_history: chatHistory,
+            include_debug: false,
+          }
+
+          if (classifierMode === "legacy") {
+            requestBodyForLog.bot_name = classifierBotName
+            if (modelNameOverride) {
+              requestBodyForLog.model_name_override = modelNameOverride
+            }
+          } else {
+            requestBodyForLog.current_agent_id = agent.name
+            requestBodyForLog.current_agent_role_description = currentAgentRoleDescription
+            requestBodyForLog.participants = participants
+          }
 
           if (debug) {
             const payloadForLog = {
               candidateAgent: agent.name,
               endpoint: v1Endpoint,
               timeoutMs,
-              requestBody: {
-                bot_name: classifierBotName,
-                include_debug: false,
-                ...(modelNameOverride ? { model_name_override: modelNameOverride } : {}),
-                chat_history: chatHistory,
-              },
+              requestBody: requestBodyForLog,
             }
             console.log(`[intent-classifier] payload ${JSON.stringify(payloadForLog)}`)
           }
 
           const shouldRespond = await callV1ShouldRespond({
+            mode: classifierMode,
             endpoint: v1Endpoint,
             headers,
             chatHistory,
-            botName: classifierBotName,
             timeoutMs,
+            botName: classifierBotName,
+            currentAgentId: agent.name,
+            currentAgentRoleDescription,
+            participants,
             modelNameOverride,
           })
 

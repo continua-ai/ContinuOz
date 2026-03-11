@@ -175,6 +175,15 @@ export default function AgentDetailPage({
               />
             </Field>
             <Field>
+              <FieldLabel htmlFor="detail-intent-role">Intent Role Description</FieldLabel>
+              <Textarea
+                id="detail-intent-role"
+                value={agent.intentRoleDescription || ""}
+                onChange={(e) => update({ intentRoleDescription: e.target.value })}
+                rows={3}
+              />
+            </Field>
+            <Field>
               <FieldLabel htmlFor="detail-prompt">System Prompt</FieldLabel>
               <Textarea
                 id="detail-prompt"

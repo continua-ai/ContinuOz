@@ -252,6 +252,7 @@ export async function POST(request: Request) {
               id: a.id,
               name: a.name,
               systemPrompt: a.systemPrompt,
+              intentRoleDescription: a.intentRoleDescription,
             })),
           })
 

@@ -40,6 +40,7 @@ export async function POST(request: Request) {
         harness: body.harness ?? "claude-code",
         environmentId: body.environmentId ?? "",
         systemPrompt: body.systemPrompt ?? "",
+        intentRoleDescription: body.intentRoleDescription ?? "",
         skills: JSON.stringify(body.skills ?? []),
         mcpServers: JSON.stringify(body.mcpServers ?? []),
         scripts: JSON.stringify(body.scripts ?? []),

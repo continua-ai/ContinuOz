@@ -43,6 +43,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (body.harness !== undefined) data.harness = body.harness
     if (body.environmentId !== undefined) data.environmentId = body.environmentId
     if (body.systemPrompt !== undefined) data.systemPrompt = body.systemPrompt
+    if (body.intentRoleDescription !== undefined) data.intentRoleDescription = body.intentRoleDescription
     if (body.skills !== undefined) data.skills = JSON.stringify(body.skills)
     if (body.mcpServers !== undefined) data.mcpServers = JSON.stringify(body.mcpServers)
     if (body.scripts !== undefined) data.scripts = JSON.stringify(body.scripts)

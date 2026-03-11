@@ -42,6 +42,7 @@ export interface Agent {
   harness: HarnessType
   environmentId: string
   systemPrompt: string
+  intentRoleDescription: string
   skills: string[]
   mcpServers: string[]
   scripts: string[]
