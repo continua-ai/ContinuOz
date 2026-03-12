@@ -118,13 +118,16 @@ if [ "$SKIP_APPLY" -eq 0 ]; then
     --from-literal=AUTH_URL="$AUTH_URL" \
     --from-literal=AUTH_TRUST_HOST="${AUTH_TRUST_HOST:-true}" \
     --from-literal=AGENT_ROUTING_MODE="${AGENT_ROUTING_MODE:-ic_only}" \
+    --from-literal=LEAD_AGENT_NAME="${LEAD_AGENT_NAME:-team-lead}" \
     --from-literal=INTENT_CLASSIFIER_URL="${INTENT_CLASSIFIER_URL:-}" \
+    --from-literal=INTENT_CLASSIFIER_MODE="${INTENT_CLASSIFIER_MODE:-legacy}" \
     --from-literal=INTENT_CLASSIFIER_API_KEY="${INTENT_CLASSIFIER_API_KEY:-}" \
     --from-literal=INTENT_CLASSIFIER_TIMEOUT_MS="${INTENT_CLASSIFIER_TIMEOUT_MS:-8000}" \
     --from-literal=INTENT_CLASSIFIER_MIN_CONFIDENCE="${INTENT_CLASSIFIER_MIN_CONFIDENCE:-0.5}" \
     --from-literal=INTENT_CLASSIFIER_AUDIENCE="${INTENT_CLASSIFIER_AUDIENCE:-}" \
     --from-literal=INTENT_CLASSIFIER_THRESHOLD="${INTENT_CLASSIFIER_THRESHOLD:-0.75}" \
     --from-literal=INTENT_CLASSIFIER_DEBUG="${INTENT_CLASSIFIER_DEBUG:-false}" \
+    --from-literal=AGENT_RATE_LIMIT_COOLDOWN_MS="${AGENT_RATE_LIMIT_COOLDOWN_MS:-120000}" \
     --dry-run=client -o yaml \
     -n "$NAMESPACE" | kubectl apply -f -; then
     echo "Failed to update secret."

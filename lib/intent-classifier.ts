@@ -175,8 +175,9 @@ function buildChatHistoryForAgent(params: {
   allBotNames: string[]
   allHumanAliases: string[]
   userAliasById: Map<string, string>
+  includeSystemMessage: boolean
 }): ICChatMessage[] {
-  const { candidate, roomMessages, allBotNames, allHumanAliases, userAliasById } = params
+  const { candidate, roomMessages, allBotNames, allHumanAliases, userAliasById, includeSystemMessage } = params
 
   const participantNames = [...allHumanAliases, ...allBotNames]
   const roleDescription = getAgentRoleDescription(candidate)
@@ -185,7 +186,10 @@ function buildChatHistoryForAgent(params: {
     ", "
   )}. Your role is ${candidate.name}.${roleDescription ? ` ${roleDescription}` : ""}. Only respond if you think the message is relevant to your role.`
 
-  const history: ICChatMessage[] = [{ role: "user", text: systemLine, n_images: 0 }]
+  const history: ICChatMessage[] = []
+  if (includeSystemMessage) {
+    history.push({ role: "user", text: systemLine, n_images: 0 })
+  }
 
   for (const m of roomMessages) {
     if (m.authorType === "agent") {
@@ -371,6 +375,7 @@ export async function classifyAgentsByIntent({
             allBotNames,
             allHumanAliases,
             userAliasById,
+            includeSystemMessage: classifierMode === "legacy",
           })
 
           const currentAgentRoleDescription = getAgentRoleDescription(agent)

@@ -22,6 +22,10 @@ function getAgentRoutingMode(): AgentRoutingMode {
   return raw === "hybrid" ? "hybrid" : "ic_only"
 }
 
+function getLeadAgentName() {
+  return (process.env.LEAD_AGENT_NAME || "team-lead").trim().toLowerCase()
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
@@ -121,6 +125,13 @@ export async function POST(request: Request) {
       data: responseMessage,
     })
 
+    console.log("[messages] received", {
+      roomId,
+      authorType,
+      roomPaused: room.paused,
+      contentPreview: typeof content === "string" ? content.slice(0, 80) : "",
+    })
+
     // Agent routing modes:
     // - ic_only (default): ignore direct @mentions for agent dispatch, rely only on IC.
     // - hybrid: direct @mentions dispatch first, IC only evaluates unmentioned agents.
@@ -144,10 +155,18 @@ export async function POST(request: Request) {
           ? allOzAgents.filter((agent) => mentionedSet.has(agent.name.toLowerCase()))
           : []
 
-      const classifierCandidates =
-        routingMode === "hybrid"
-          ? allOzAgents.filter((agent) => !mentionedSet.has(agent.name.toLowerCase()))
-          : allOzAgents
+      const leadAgentName = getLeadAgentName()
+      const leadAgent = allOzAgents.find((agent) => agent.name.toLowerCase() === leadAgentName)
+      const classifierCandidates = leadAgent ? [leadAgent] : []
+
+      console.log("[messages] routing candidates", {
+        roomId,
+        routingMode,
+        ozAgentCount: allOzAgents.length,
+        leadAgentName,
+        leadAgentFound: !!leadAgent,
+        classifierCandidateCount: classifierCandidates.length,
+      })
 
       const classifierSelectedIds = await classifyAgentsByIntent({
         roomId,
@@ -160,14 +179,25 @@ export async function POST(request: Request) {
         })),
       })
       const classifierSelectedSet = new Set(classifierSelectedIds)
-
       const classifierOzAgents = classifierCandidates.filter((a) => classifierSelectedSet.has(a.id))
+      const leadFallback = classifierOzAgents.length === 0 ? leadAgent ?? null : null
+      const classifierWithFallback = leadFallback
+        ? [...classifierOzAgents, leadFallback]
+        : classifierOzAgents
+
+      if (leadFallback) {
+        console.log("[messages] IC selected none; applying lead fallback", {
+          roomId,
+          leadAgentId: leadFallback.id,
+          leadAgentName: leadFallback.name,
+        })
+      }
 
       // In hybrid mode, direct mentions win precedence and IC only contributes unmentioned agents.
       // In ic_only mode, mentionedOzAgents is always empty.
       const targetAgentMap = new Map<string, (typeof agents)[number]>()
       for (const agent of mentionedOzAgents) targetAgentMap.set(agent.id, agent)
-      for (const agent of classifierOzAgents) targetAgentMap.set(agent.id, agent)
+      for (const agent of classifierWithFallback) targetAgentMap.set(agent.id, agent)
       const targetAgents = Array.from(targetAgentMap.values())
 
       if (targetAgents.length > 0) {
@@ -231,6 +261,18 @@ export async function POST(request: Request) {
           }
         }
       }
+    }
+
+    if (authorType !== "human" || typeof content !== "string" || room.paused) {
+      console.log("[messages] routing skipped", {
+        roomId,
+        reason:
+          authorType !== "human"
+            ? "non-human-author"
+            : typeof content !== "string"
+              ? "non-string-content"
+              : "room-paused",
+      })
     }
 
     return NextResponse.json(responseMessage)

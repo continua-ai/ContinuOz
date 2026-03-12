@@ -21,6 +21,49 @@ function trimForPrompt(text: string, maxChars: number) {
   return `${text.slice(0, maxChars)}\n\n[truncated ${text.length - maxChars} chars]`
 }
 
+const INTERRUPT_FORCE_RESPOND_MS = 20_000
+const NO_RESPONSE_TOKEN = "__NO_RESPONSE__"
+
+async function getActiveInvocation(agentId: string) {
+  const marker = await prisma.agentCallback.findUnique({
+    where: { id: `active-invoke:${agentId}` },
+    select: { response: true },
+  })
+  return marker?.response || null
+}
+
+async function getInterruptStartMs(agentId: string) {
+  const marker = await prisma.agentCallback.findUnique({
+    where: { id: `interrupt-start:${agentId}` },
+    select: { response: true },
+  })
+  const ms = Number(marker?.response)
+  return Number.isFinite(ms) ? ms : null
+}
+
+async function markInterrupted(agentId: string) {
+  const now = Date.now()
+  const existingStart = await getInterruptStartMs(agentId)
+
+  if (!existingStart) {
+    await prisma.agentCallback.upsert({
+      where: { id: `interrupt-start:${agentId}` },
+      create: { id: `interrupt-start:${agentId}`, response: String(now) },
+      update: { response: String(now) },
+    })
+  }
+
+  await prisma.agentCallback.upsert({
+    where: { id: `active-invoke:${agentId}` },
+    create: { id: `active-invoke:${agentId}`, response: `interrupted:${now}` },
+    update: { response: `interrupted:${now}` },
+  })
+}
+
+async function clearInterruptMarkers(agentId: string) {
+  await prisma.agentCallback.delete({ where: { id: `interrupt-start:${agentId}` } }).catch(() => {})
+}
+
 // POST - Agent sends its response here
 export async function POST(request: Request) {
   try {
@@ -45,10 +88,43 @@ export async function POST(request: Request) {
     const roomId = url.searchParams.get("roomId") ?? decoded?.roomId ?? null
     const agentId = url.searchParams.get("agentId") ?? decoded?.agentId ?? null
     const messageText = decoded?.message ?? response
+    const shouldSuppressResponse = messageText.trim() === NO_RESPONSE_TOKEN
 
     // If we have enough context, persist the agent message immediately so the room updates
     // even if the long-running invokeAgent serverless function is killed.
     if (roomId && agentId) {
+      const activeInvocation = await getActiveInvocation(agentId)
+      if (activeInvocation && activeInvocation !== taskId) {
+        console.log("[agent-response] Ignoring stale callback", {
+          roomId,
+          agentId,
+          taskId,
+          activeInvocation,
+        })
+        return NextResponse.json({ success: true, ignored: true })
+      }
+
+      if (shouldSuppressResponse) {
+        await prisma.agentCallback.upsert({
+          where: { id: `suppress:${taskId}` },
+          create: { id: `suppress:${taskId}`, response: "true" },
+          update: { response: "true" },
+        })
+
+        await prisma.agent.updateMany({
+          where: { id: agentId, activeRoomId: roomId },
+          data: { status: "idle", activeRoomId: null },
+        })
+        await clearInterruptMarkers(agentId)
+        eventBroadcaster.broadcast({ type: "room", roomId, data: null })
+        console.log("[agent-response] Suppressing agent message by no-response token", {
+          roomId,
+          agentId,
+          taskId,
+        })
+        return NextResponse.json({ success: true, suppressed: true })
+      }
+
       const room = await prisma.room.findUnique({
         where: { id: roomId },
         select: { userId: true, workspaceId: true },
@@ -80,6 +156,7 @@ export async function POST(request: Request) {
         where: { id: agentId, activeRoomId: roomId },
         data: { status: "idle", activeRoomId: null },
       })
+      await clearInterruptMarkers(agentId)
 
       eventBroadcaster.broadcast({
         type: "message",
@@ -240,6 +317,34 @@ export async function POST(request: Request) {
             where: { roomId },
             include: { agent: true },
           })
+
+          const runningOthers = await prisma.agent.findMany({
+            where: {
+              activeRoomId: roomId,
+              status: "running",
+              id: { not: agentId },
+            },
+            select: { id: true, name: true },
+          })
+
+          for (const runningAgent of runningOthers) {
+            const interruptStartMs = await getInterruptStartMs(runningAgent.id)
+            const elapsed = interruptStartMs ? Date.now() - interruptStartMs : 0
+            if (interruptStartMs && elapsed > INTERRUPT_FORCE_RESPOND_MS) {
+              console.log("[agent-response] letting interrupted agent finish after threshold", {
+                roomId,
+                agentId: runningAgent.id,
+                elapsedMs: elapsed,
+              })
+              continue
+            }
+            await markInterrupted(runningAgent.id)
+            console.log("[agent-response] interrupted running agent; it must re-qualify via IC", {
+              roomId,
+              agentId: runningAgent.id,
+              elapsedMs: elapsed,
+            })
+          }
 
           const icCandidates = roomAgents
             .map((ra) => ra.agent)

@@ -6,6 +6,78 @@ import { saveWarpArtifacts } from "@/lib/warp-artifacts"
 import { after } from "next/server"
 
 const MAX_DISPATCH_DEPTH = 20
+
+function isRateLimitError(error: unknown) {
+  if (!error) return false
+  const message = error instanceof Error ? error.message : String(error)
+  return message.includes("429") || message.toLowerCase().includes("too many requests")
+}
+
+function getRateLimitCooldownMs() {
+  return Number(process.env.AGENT_RATE_LIMIT_COOLDOWN_MS || 120000)
+}
+
+async function isAgentInRateLimitCooldown(agentId: string) {
+  const marker = await prisma.agentCallback.findUnique({
+    where: { id: `cooldown:${agentId}` },
+    select: { response: true },
+  })
+  if (!marker) return false
+
+  const untilMs = Number(marker.response)
+  if (!Number.isFinite(untilMs)) return false
+
+  if (Date.now() >= untilMs) {
+    await prisma.agentCallback.delete({ where: { id: `cooldown:${agentId}` } }).catch(() => {})
+    return false
+  }
+
+  return true
+}
+
+async function setAgentRateLimitCooldown(agentId: string) {
+  const untilMs = Date.now() + getRateLimitCooldownMs()
+  await prisma.agentCallback.upsert({
+    where: { id: `cooldown:${agentId}` },
+    create: { id: `cooldown:${agentId}`, response: String(untilMs) },
+    update: { response: String(untilMs) },
+  })
+}
+
+async function setActiveInvocation(agentId: string, invocationId: string) {
+  await prisma.agentCallback.upsert({
+    where: { id: `active-invoke:${agentId}` },
+    create: { id: `active-invoke:${agentId}`, response: invocationId },
+    update: { response: invocationId },
+  })
+}
+
+async function getActiveInvocation(agentId: string) {
+  const marker = await prisma.agentCallback.findUnique({
+    where: { id: `active-invoke:${agentId}` },
+    select: { response: true },
+  })
+  return marker?.response || null
+}
+
+async function clearActiveInvocation(agentId: string, expectedInvocationId: string) {
+  const current = await getActiveInvocation(agentId)
+  if (current !== expectedInvocationId) return false
+  await prisma.agentCallback.delete({ where: { id: `active-invoke:${agentId}` } }).catch(() => {})
+  return true
+}
+
+async function consumeSuppressedResponse(invocationId: string) {
+  const markerId = `suppress:${invocationId}`
+  const marker = await prisma.agentCallback.findUnique({
+    where: { id: markerId },
+    select: { id: true },
+  })
+  if (!marker) return false
+  await prisma.agentCallback.delete({ where: { id: markerId } }).catch(() => {})
+  return true
+}
+
 function generateInvocationId() {
   return `inv_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
 }
@@ -64,6 +136,11 @@ export async function invokeAgent({
     return { success: false, error: "roomId, agentId, and prompt are required", errorStatus: 400 }
   }
 
+  if (await isAgentInRateLimitCooldown(agentId)) {
+    console.warn("[invokeAgent] Agent in 429 cooldown, skipping invocation", { agentId, roomId })
+    return { success: false, error: "Agent is cooling down after rate limit", errorStatus: 429 }
+  }
+
   // Check if room invocations are paused
   const roomForPause = await prisma.room.findUnique({
     where: workspaceId ? { id: roomId, workspaceId } : { id: roomId },
@@ -101,6 +178,8 @@ export async function invokeAgent({
     return { success: false, error: `Harness "${agent.harness}" is not yet supported`, errorStatus: 400 }
   }
 
+  const invocationId = invocationIdOverride || generateInvocationId()
+
   // Set agent to "running". For the initial call from /api/messages this is
   // already done before after() fires, but for recursive agent-to-agent
   // dispatches (depth > 0) this is the first time it's set.
@@ -108,13 +187,11 @@ export async function invokeAgent({
     where: { id: agentId },
     data: { status: "running", activeRoomId: roomId },
   })
+  await setActiveInvocation(agentId, invocationId)
 
   eventBroadcaster.broadcast({ type: "room", roomId, data: null })
 
   try {
-    const invocationId =
-      invocationIdOverride ||
-      `inv_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
     const callbackBaseUrl =
       process.env.AGENT_CALLBACK_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
     const callbackUrl = `${callbackBaseUrl}/api/agent-response?roomId=${encodeURIComponent(roomId)}&agentId=${encodeURIComponent(agentId)}`
@@ -171,7 +248,12 @@ Call the send_message skill with:
 - task_id: "${invocationId}"
 - message: Your response to the user
 
-This is REQUIRED - your response will not be seen by the user unless you use send_message.
+If you decide you should not respond, call send_message with:
+- callback_url: "${callbackUrl}"
+- task_id: "${invocationId}"
+- message: "__NO_RESPONSE__"
+
+This no-response token will gracefully suppress any UI message for this run. You should not respond to messages if you have nothing to add or update or you want to avoid redundant messages.
 `
 
     const agentApiKey = process.env.AGENT_API_KEY || ""
@@ -245,6 +327,18 @@ To mention an agent, include @agent-name in your response message.
 
     const result = await pollForCompletion(taskId, { userId, workspaceId: effectiveWorkspaceId })
 
+    const activeInvocation = await getActiveInvocation(agentId)
+    const isStaleInvocation = activeInvocation !== invocationId
+    if (isStaleInvocation) {
+      console.log("[invokeAgent] Ignoring stale completion", {
+        agentId,
+        roomId,
+        invocationId,
+        activeInvocation,
+      })
+      return { success: false, error: "Invocation interrupted by newer activity", errorStatus: 409 }
+    }
+
     // Persist any artifacts returned by the Warp API
     if (result.artifacts && result.artifacts.length > 0) {
       await saveWarpArtifacts(result.artifacts, { roomId, agentId, userId })
@@ -255,8 +349,19 @@ To mention an agent, include @agent-name in your response message.
       where: { id: agentId },
       data: { status: "idle", activeRoomId: null },
     })
+    await clearActiveInvocation(agentId, invocationId)
 
     eventBroadcaster.broadcast({ type: "room", roomId, data: null })
+
+    const suppressed = await consumeSuppressedResponse(invocationId)
+    if (suppressed) {
+      console.log("[invokeAgent] Agent explicitly chose no-response", {
+        agentId,
+        roomId,
+        invocationId,
+      })
+      return { success: true }
+    }
 
     if (result.state === "failed") {
       const errorMessage = await prisma.message.upsert({
@@ -462,37 +567,56 @@ To mention an agent, include @agent-name in your response message.
       message: { ...message, author: message.agent, agent: undefined },
     }
   } catch (error) {
-    // Update agent status to error
-    await prisma.agent.update({
-      where: { id: agentId },
-      data: { status: "error", activeRoomId: null },
-    })
-    eventBroadcaster.broadcast({ type: "room", roomId, data: null })
+    const rateLimited = isRateLimitError(error)
+    const activeInvocation = await getActiveInvocation(agentId)
+    const isActiveInvocation = activeInvocation === invocationId
+
+    if (rateLimited && isActiveInvocation) {
+      await setAgentRateLimitCooldown(agentId)
+    }
+
+    if (isActiveInvocation) {
+      // For rate-limit errors, reset back to idle; for other failures, mark as error.
+      await prisma.agent.update({
+        where: { id: agentId },
+        data: { status: rateLimited ? "idle" : "error", activeRoomId: null },
+      })
+      await clearActiveInvocation(agentId, invocationId)
+      eventBroadcaster.broadcast({ type: "room", roomId, data: null })
+    } else {
+      console.log("[invokeAgent] Ignoring stale error", { agentId, roomId, invocationId, activeInvocation })
+    }
 
     // Surface failures in-chat so the user isn't left with a brief "thinking" state and no output.
-    try {
-      const errMsg = error instanceof Error ? error.message : "Unknown error"
-      const errorMessage = await prisma.message.create({
-        data: {
-          content: `⚠️ **${agent.name}** couldn't start: ${errMsg}`,
-          authorType: "agent",
-          sessionUrl: null,
-          userId,
-          roomId,
-          authorId: agentId,
-        },
-        include: {
-          agent: { select: { id: true, name: true, color: true, icon: true, status: true, activeRoomId: true } },
-        },
-      })
+    // For rate-limit errors (429), keep this out of UI to avoid noisy distraction.
+    const shouldSurfaceInUi = !rateLimited
+    if (shouldSurfaceInUi) {
+      try {
+        const errMsg = error instanceof Error ? error.message : "Unknown error"
+        const errorMessage = await prisma.message.create({
+          data: {
+            content: `⚠️ **${agent.name}** couldn't start: ${errMsg}`,
+            authorType: "agent",
+            sessionUrl: null,
+            userId,
+            roomId,
+            authorId: agentId,
+          },
+          include: {
+            agent: { select: { id: true, name: true, color: true, icon: true, status: true, activeRoomId: true } },
+          },
+        })
 
-      eventBroadcaster.broadcast({
-        type: "message",
-        roomId,
-        data: { ...errorMessage, author: errorMessage.agent, agent: undefined },
-      })
-    } catch (e) {
-      console.error("[invokeAgent] Failed to persist/broadcast error message:", e)
+        eventBroadcaster.broadcast({
+          type: "message",
+          roomId,
+          data: { ...errorMessage, author: errorMessage.agent, agent: undefined },
+        })
+      } catch (e) {
+        console.error("[invokeAgent] Failed to persist/broadcast error message:", e)
+      }
+    } else {
+      console.warn(`[invokeAgent] Suppressing 429 UI error for ${agent.name}`)
     }
     throw error
   }
