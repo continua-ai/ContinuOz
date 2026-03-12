@@ -239,21 +239,35 @@ export async function invokeAgent({
         : "No tasks yet."
 
     const callbackInstructions = `
-IMPORTANT: After completing the user's request, you MUST send your response back to the chat using the send_message skill.
-The chat UI supports Markdown (headings, lists, bold, etc.).
-If you want to trigger another agent, include their @mention in normal text (do NOT wrap it in backticks/code).
+IMPORTANT RESPONSE POLICY (STRICT):
+You must be selective. Do NOT send chat messages unless they add clear new value for the human.
+
+Use send_message with a normal response ONLY when at least one is true:
+1) You are directly asked to do work or answer a question.
+2) You have a concrete deliverable (plan, code result, PR, decision, blocker).
+3) You are confirming completion of a task that that was assigned to you.
+4) You need specific human input to proceed.
+5) You are the lead agent providing a consolidated update.
+
+If none of the above are true, you must suppress your response.
+
+Never send redundant chatter, including:
+- "Great work", "thanks", "approved", "project wrapped", "standing by"
+- duplicate completion messages after another agent already reported the same outcome
+- celebratory/status-only updates with no new action required
 
 Call the send_message skill with:
 - callback_url: "${callbackUrl}"
 - task_id: "${invocationId}"
 - message: Your response to the user
 
-If you decide you should not respond, call send_message with:
+To suppress output, call send_message with:
 - callback_url: "${callbackUrl}"
 - task_id: "${invocationId}"
 - message: "__NO_RESPONSE__"
 
-This no-response token will gracefully suppress any UI message for this run. You should not respond to messages if you have nothing to add or update or you want to avoid redundant messages.
+The no-response token gracefully suppresses UI output for this run.
+If you want to trigger another agent, include their @mention in normal text (do NOT wrap it in backticks/code).
 `
 
     const agentApiKey = process.env.AGENT_API_KEY || ""
