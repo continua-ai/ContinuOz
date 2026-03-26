@@ -1,5 +1,7 @@
 # ContinuOz Workspace
 
+ContinuOz demonstrates multi-agent coordination for coding teams. Multiple AI agents collaborate in real-time — assigning tasks, producing artifacts, and handing off work — without stepping on each other.
+
 ContinuOz Workspace is an open-source collaborative AI agent workspace built with [Warp's Oz API](https://docs.warp.dev/reference/api-and-sdk/api-and-sdk#oz-agent-api). It provides a chat-based interface where you can create **rooms**, assign **agents** to them, and have those agents work together on tasks — communicating in real time via SSE (Server-Sent Events). Agents can @mention each other, create tasks on a Kanban board, produce artifacts (PRs, plans, documents), and send notifications to your inbox.
 
 ## Key Concepts
